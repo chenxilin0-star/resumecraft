@@ -26,3 +26,10 @@ dist-ssr
 # Cloudflare
 .wrangler
 .dev.vars
+
+# TypeScript build info
+*.tsbuildinfo
+
+# Generated config artifacts
+vite.config.js
+vite.config.d.ts
