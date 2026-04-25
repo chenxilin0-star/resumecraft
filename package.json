@@ -1,0 +1,50 @@
+{
+  "name": "resumecraft",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "lint": "eslint .",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.14.1",
+    "@tanstack/react-query": "^5.74.4",
+    "clsx": "^2.1.1",
+    "framer-motion": "^12.9.1",
+    "hono": "^4.7.7",
+    "html2canvas": "^1.4.1",
+    "jspdf": "^2.5.1",
+    "lucide-react": "^0.503.0",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "react-router-dom": "6.21.0",
+    "tailwind-merge": "^3.2.0",
+    "zustand": "^5.0.3"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260425.1",
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.3.0",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/jsdom": "^21.1.7",
+    "@types/node": "^24.12.2",
+    "@types/react": "18.2.48",
+    "@types/react-dom": "18.2.18",
+    "@vitejs/plugin-react": "4.2.1",
+    "autoprefixer": "^10.4.21",
+    "eslint": "^10.2.1",
+    "globals": "^17.5.0",
+    "jsdom": "^26.1.0",
+    "postcss": "^8.5.3",
+    "tailwindcss": "^3.4.0",
+    "typescript": "5.3.3",
+    "vite": "5.0.12",
+    "vitest": "^3.1.2",
+    "wrangler": "^4.14.0"
+  }
+}
