@@ -1,6 +1,6 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Eye, Save, Download, ChevronDown, Plus, GripVertical, Settings, Sparkles, Loader2 } from 'lucide-react';
+import { ArrowLeft, Eye, Save, Download, ChevronDown, Plus, GripVertical, Settings, Sparkles, Loader2, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useEditorStore } from '@/stores/editorStore';
 import { getTemplateById, templateComponents } from '@/templates';
@@ -11,6 +11,7 @@ import Modal from '@/components/ui/Modal';
 import { cn } from '@/utils/helpers';
 import { aiApi } from '@/api/ai';
 import type { AiAction } from '@/utils/ai';
+import type { ResumeData } from '@/types';
 
 const sectionLabels: Record<string, string> = {
   personal: '个人信息',
@@ -24,6 +25,29 @@ const sectionLabels: Record<string, string> = {
   languages: '语言能力',
 };
 
+function getEmptySectionData(section: string): unknown {
+  switch (section) {
+    case 'intention':
+      return { position: '', city: '', salary: '', availableTime: '' };
+    case 'education':
+      return [{ school: '', degree: '', major: '', period: '' }];
+    case 'workExperience':
+      return [{ company: '', position: '', period: '', description: '' }];
+    case 'projects':
+      return [{ name: '', role: '', period: '', description: '' }];
+    case 'skills':
+      return [{ name: '', level: 3 }];
+    case 'certificates':
+      return [{ name: '', date: '', description: '' }];
+    case 'languages':
+      return [{ language: '', level: '' }];
+    case 'summary':
+      return '';
+    default:
+      return undefined;
+  }
+}
+
 export default function Editor() {
   const { templateId } = useParams<{ templateId: string }>();
   const navigate = useNavigate();
@@ -34,6 +58,8 @@ export default function Editor() {
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [aiLoadingAction, setAiLoadingAction] = useState<AiAction | null>(null);
   const [aiError, setAiError] = useState('');
+  const [showAddMenu, setShowAddMenu] = useState(false);
+  const [visibleSections, setVisibleSections] = useState<string[]>(() => template?.defaultSections || []);
 
   const { resumeData, activeSection, setActiveSection, updateSection, zoom, setZoom } = useEditorStore();
 
@@ -110,6 +136,33 @@ export default function Editor() {
 
   const canUseAi = ['summary', 'workExperience', 'projects'].includes(activeSection);
 
+  const addMenuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (addMenuRef.current && !addMenuRef.current.contains(e.target as Node)) {
+        setShowAddMenu(false);
+      }
+    }
+    if (showAddMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [showAddMenu]);
+
+  // Build preview data: hide sections not in visibleSections
+  const previewData = useMemo(() => {
+    const data = { ...resumeData } as Record<string, unknown>;
+    const allKeys = Object.keys(sectionLabels);
+    for (const key of allKeys) {
+      if (!visibleSections.includes(key)) {
+        data[key] = undefined;
+      }
+    }
+    // Keep personal always visible
+    data.personal = resumeData.personal;
+    return data as unknown as ResumeData;
+  }, [resumeData, visibleSections]);
+
   if (!template || !theme) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-100">
@@ -172,7 +225,7 @@ export default function Editor() {
                     模块列表
                   </h3>
                   <div className="space-y-1">
-                    {template.defaultSections.map((section) => (
+                    {visibleSections.map((section) => (
                       <button
                         key={section}
                         onClick={() => setActiveSection(section)}
@@ -184,16 +237,67 @@ export default function Editor() {
                         )}
                       >
                         <span>{sectionLabels[section] || section}</span>
-                        <span className="text-xs text-gray-400">
-                          {section === 'personal' ? '✓' : ''}
-                        </span>
+                        <div className="flex items-center gap-1">
+                          {section === 'personal' && (
+                            <span className="text-xs text-gray-400">必填</span>
+                          )}
+                          {section !== 'personal' && (
+                            <span
+                              className="p-1 rounded hover:bg-gray-200 text-gray-400 hover:text-red-500"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const next = visibleSections.filter((s) => s !== section);
+                                setVisibleSections(next);
+                                if (activeSection === section) {
+                                  setActiveSection(next[0] || 'personal');
+                                }
+                              }}
+                              title="移除模块"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </span>
+                          )}
+                        </div>
                       </button>
                     ))}
                   </div>
-                  <button className="mt-2 w-full flex items-center justify-center gap-1 px-3 py-2 rounded-md text-sm text-primary-600 hover:bg-primary-50 transition-colors border border-dashed border-primary-200">
-                    <Plus className="w-4 h-4" />
-                    添加模块
-                  </button>
+                  <div className="relative">
+                    <button
+                      onClick={() => setShowAddMenu(!showAddMenu)}
+                      className="mt-2 w-full flex items-center justify-center gap-1 px-3 py-2 rounded-md text-sm text-primary-600 hover:bg-primary-50 transition-colors border border-dashed border-primary-200"
+                    >
+                      <Plus className="w-4 h-4" />
+                      添加模块
+                    </button>
+                    {showAddMenu && (
+                      <div ref={addMenuRef} className="absolute left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-20 py-1">
+                        {Object.entries(sectionLabels)
+                          .filter(([key]) => !visibleSections.includes(key))
+                          .map(([key, label]) => (
+                            <button
+                              key={key}
+                              className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                              onClick={() => {
+                                setVisibleSections([...visibleSections, key]);
+                                setActiveSection(key);
+                                setShowAddMenu(false);
+                                // Initialize empty data in store if undefined
+                                const store = useEditorStore.getState();
+                                const data = store.resumeData as unknown as Record<string, unknown>;
+                                if (data[key] === undefined) {
+                                  store.updateSection(key as never, getEmptySectionData(key) as never);
+                                }
+                              }}
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        {Object.keys(sectionLabels).every((key) => visibleSections.includes(key)) && (
+                          <div className="px-3 py-2 text-xs text-gray-400">已添加所有模块</div>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 {/* Form Area */}
@@ -341,7 +445,10 @@ export default function Editor() {
                         }} />
                         <Input label="熟练度 (1-5)" type="number" min={1} max={5} value={String(resumeData.skills[0]?.level || 3)} onChange={(e) => {
                           const s = [...resumeData.skills];
-                          s[0] = { ...s[0], level: Number(e.target.value) };
+                          let level = Number(e.target.value);
+                          if (Number.isNaN(level)) level = 3;
+                          level = Math.max(1, Math.min(5, level));
+                          s[0] = { ...s[0], level };
                           updateSection('skills', s);
                         }} />
                       </>
@@ -402,7 +509,7 @@ export default function Editor() {
               transform: `scale(${zoom})`,
             }}
           >
-            {TemplateComponent && <TemplateComponent data={resumeData} theme={theme} />}
+            {TemplateComponent && <TemplateComponent data={previewData} theme={theme} />}
           </div>
 
           {/* Zoom Controls */}
