@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Eye, Save, Download, ChevronDown, Plus, GripVertical, Settings } from 'lucide-react';
+import { ArrowLeft, Eye, Save, Download, ChevronDown, Plus, GripVertical, Settings, Sparkles, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useEditorStore } from '@/stores/editorStore';
 import { getTemplateById, templateComponents } from '@/templates';
@@ -9,6 +9,8 @@ import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
 import Modal from '@/components/ui/Modal';
 import { cn } from '@/utils/helpers';
+import { aiApi } from '@/api/ai';
+import type { AiAction } from '@/utils/ai';
 
 const sectionLabels: Record<string, string> = {
   personal: '个人信息',
@@ -30,6 +32,8 @@ export default function Editor() {
   const [showExportModal, setShowExportModal] = useState(false);
   const [exportProgress, setExportProgress] = useState(0);
   const [leftCollapsed, setLeftCollapsed] = useState(false);
+  const [aiLoadingAction, setAiLoadingAction] = useState<AiAction | null>(null);
+  const [aiError, setAiError] = useState('');
 
   const { resumeData, activeSection, setActiveSection, updateSection, zoom, setZoom } = useEditorStore();
 
@@ -55,6 +59,56 @@ export default function Editor() {
       setTimeout(() => setShowExportModal(false), 500);
     }
   };
+
+  const getActiveAiText = () => {
+    if (activeSection === 'summary') return resumeData.summary || '';
+    if (activeSection === 'workExperience') return resumeData.workExperience[0]?.description || '';
+    if (activeSection === 'projects') return resumeData.projects[0]?.description || '';
+    return '';
+  };
+
+  const applyActiveAiText = (text: string) => {
+    if (activeSection === 'summary') {
+      updateSection('summary', text);
+      return;
+    }
+    if (activeSection === 'workExperience') {
+      const work = [...resumeData.workExperience];
+      work[0] = { ...(work[0] || { company: '', position: '', period: '', description: '' }), description: text };
+      updateSection('workExperience', work);
+      return;
+    }
+    if (activeSection === 'projects') {
+      const projects = [...resumeData.projects];
+      projects[0] = { ...(projects[0] || { name: '', role: '', period: '', description: '' }), description: text };
+      updateSection('projects', projects);
+    }
+  };
+
+  const handleAiOptimize = async (action: AiAction) => {
+    const text = getActiveAiText().trim();
+    if (!text) {
+      setAiError('请先填写要优化的内容');
+      return;
+    }
+    setAiError('');
+    setAiLoadingAction(action);
+    try {
+      const res = await aiApi.optimize({
+        action,
+        section: activeSection,
+        text,
+        targetRole: resumeData.intention?.position,
+      });
+      applyActiveAiText(res.data.text);
+    } catch (err) {
+      setAiError(err instanceof Error ? err.message : 'AI 优化失败，请稍后重试');
+    } finally {
+      setAiLoadingAction(null);
+    }
+  };
+
+  const canUseAi = ['summary', 'workExperience', 'projects'].includes(activeSection);
 
   if (!template || !theme) {
     return (
@@ -148,6 +202,35 @@ export default function Editor() {
                     {sectionLabels[activeSection] || activeSection}
                   </h3>
                   <div className="space-y-4">
+                    {canUseAi && (
+                      <div className="rounded-xl border border-primary-100 bg-primary-50/70 p-3">
+                        <div className="flex items-center gap-2 text-sm font-medium text-primary-700 mb-2">
+                          <Sparkles className="w-4 h-4" />
+                          DeepSeek AI 简历助手
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          {([
+                            ['polish', 'AI 优化'],
+                            ['expand', 'AI 扩写'],
+                            ['shorten', 'AI 精简'],
+                            ['professional', '专业表达'],
+                          ] as [AiAction, string][]).map(([action, label]) => (
+                            <button
+                              key={action}
+                              type="button"
+                              onClick={() => handleAiOptimize(action)}
+                              disabled={!!aiLoadingAction}
+                              className="inline-flex items-center justify-center gap-1 rounded-lg bg-white px-3 py-2 text-xs font-medium text-primary-700 shadow-sm hover:bg-primary-100 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {aiLoadingAction === action ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                        {aiError && <p className="mt-2 text-xs text-red-500">{aiError}</p>}
+                        <p className="mt-2 text-xs text-primary-500">支持自我评价、工作经历、项目经历润色。</p>
+                      </div>
+                    )}
                     {activeSection === 'personal' && (
                       <>
                         <Input label="姓名" value={resumeData.personal.name} onChange={(e) => updateSection('personal', { ...resumeData.personal, name: e.target.value })} />
@@ -204,6 +287,49 @@ export default function Editor() {
                           w[0] = { ...w[0], period: e.target.value };
                           updateSection('workExperience', w);
                         }} />
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">工作内容</label>
+                          <textarea
+                            className="w-full px-3.5 py-2 text-sm bg-white border border-gray-300 rounded-md focus:outline-none focus:border-primary-500 focus:ring-3 focus:ring-primary-100 min-h-[120px] resize-y"
+                            value={resumeData.workExperience[0]?.description || ''}
+                            onChange={(e) => {
+                              const w = [...resumeData.workExperience];
+                              w[0] = { ...(w[0] || { company: '', position: '', period: '', description: '' }), description: e.target.value };
+                              updateSection('workExperience', w);
+                            }}
+                          />
+                        </div>
+                      </>
+                    )}
+                    {activeSection === 'projects' && (
+                      <>
+                        <Input label="项目名称" value={resumeData.projects[0]?.name || ''} onChange={(e) => {
+                          const p = [...resumeData.projects];
+                          p[0] = { ...(p[0] || { name: '', role: '', period: '', description: '' }), name: e.target.value };
+                          updateSection('projects', p);
+                        }} />
+                        <Input label="角色" value={resumeData.projects[0]?.role || ''} onChange={(e) => {
+                          const p = [...resumeData.projects];
+                          p[0] = { ...(p[0] || { name: '', role: '', period: '', description: '' }), role: e.target.value };
+                          updateSection('projects', p);
+                        }} />
+                        <Input label="时间段" value={resumeData.projects[0]?.period || ''} onChange={(e) => {
+                          const p = [...resumeData.projects];
+                          p[0] = { ...(p[0] || { name: '', role: '', period: '', description: '' }), period: e.target.value };
+                          updateSection('projects', p);
+                        }} />
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">项目描述</label>
+                          <textarea
+                            className="w-full px-3.5 py-2 text-sm bg-white border border-gray-300 rounded-md focus:outline-none focus:border-primary-500 focus:ring-3 focus:ring-primary-100 min-h-[120px] resize-y"
+                            value={resumeData.projects[0]?.description || ''}
+                            onChange={(e) => {
+                              const p = [...resumeData.projects];
+                              p[0] = { ...(p[0] || { name: '', role: '', period: '', description: '' }), description: e.target.value };
+                              updateSection('projects', p);
+                            }}
+                          />
+                        </div>
                       </>
                     )}
                     {activeSection === 'skills' && (
@@ -232,7 +358,7 @@ export default function Editor() {
                         <p className="mt-1 text-xs text-gray-400 text-right">{(resumeData.summary || '').length}/500</p>
                       </div>
                     )}
-                    {!['personal', 'intention', 'education', 'workExperience', 'skills', 'summary'].includes(activeSection) && (
+                    {!['personal', 'intention', 'education', 'workExperience', 'projects', 'skills', 'summary'].includes(activeSection) && (
                       <p className="text-sm text-gray-400">该模块表单占位</p>
                     )}
                   </div>

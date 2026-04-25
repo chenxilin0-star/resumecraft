@@ -1,8 +1,12 @@
 import { Hono, type Context } from 'hono';
+import { buildResumeAiPrompt, normalizeAiAction } from '../utils/ai';
 
 interface Env {
   DB: D1Database;
   JWT_SECRET: string;
+  DEEPSEEK_API_KEY: string;
+  DEEPSEEK_BASE_URL?: string;
+  DEEPSEEK_MODEL?: string;
 }
 
 const app = new Hono<{ Bindings: Env }>();
@@ -184,6 +188,54 @@ app.delete('/api/resumes/:id', async (c) => {
   const id = c.req.param('id');
   await c.env.DB.prepare('DELETE FROM resumes WHERE id = ?').bind(Number(id)).run();
   return json({ deleted: true });
+});
+
+// AI resume optimization
+app.post('/api/ai/optimize', async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const text = String(body.text || '').trim();
+  const section = String(body.section || 'summary');
+  const action = normalizeAiAction(String(body.action || 'polish'));
+  const targetRole = body.targetRole ? String(body.targetRole) : undefined;
+
+  if (!text) return error('Text required');
+  if (text.length > 3000) return error('Text too long, max 3000 characters');
+  if (!c.env.DEEPSEEK_API_KEY) return error('DeepSeek API key is not configured', 500);
+
+  const model = c.env.DEEPSEEK_MODEL || 'deepseek-chat';
+  const baseUrl = c.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com';
+  const prompt = buildResumeAiPrompt({ action, section, text, targetRole });
+
+  const resp = await fetch(`${baseUrl.replace(/\/$/, '')}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${c.env.DEEPSEEK_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model,
+      temperature: 0.35,
+      max_tokens: 900,
+      messages: [
+        { role: 'system', content: '你是专业中文简历优化助手。必须只输出可直接放进简历的正文。' },
+        { role: 'user', content: prompt },
+      ],
+    }),
+  });
+
+  const data = await resp.json().catch(() => ({})) as Record<string, unknown>;
+  if (!resp.ok) {
+    const message = typeof data.error === 'object' && data.error && 'message' in data.error
+      ? String((data.error as { message?: unknown }).message)
+      : 'DeepSeek request failed';
+    return error(message, resp.status);
+  }
+
+  const choices = data.choices as Array<{ message?: { content?: string } }> | undefined;
+  const resultText = choices?.[0]?.message?.content?.trim();
+  if (!resultText) return error('DeepSeek returned empty content', 502);
+
+  return json({ text: resultText, model });
 });
 
 // Redeem placeholder
