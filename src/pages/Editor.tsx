@@ -206,7 +206,7 @@ export default function Editor() {
                       <div className="rounded-xl border border-primary-100 bg-primary-50/70 p-3">
                         <div className="flex items-center gap-2 text-sm font-medium text-primary-700 mb-2">
                           <Sparkles className="w-4 h-4" />
-                          DeepSeek AI 简历助手
+                          智能优化
                         </div>
                         <div className="grid grid-cols-2 gap-2">
                           {([

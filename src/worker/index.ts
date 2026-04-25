@@ -232,7 +232,7 @@ app.post('/api/ai/optimize', async (c) => {
       temperature: 0.35,
       max_tokens: 900,
       messages: [
-        { role: 'system', content: '你是专业中文简历优化助手。必须只输出可直接放进简历的正文。' },
+        { role: 'system', content: '你是一名拥有 10 年经验的中文简历优化专家。输出时严格遵循：1. 只返回正文，无解释、无标题、无前后缀。2. 不编造事实。3. 用强动词开头、4. 量化成果为主。5. 不说“我”，不出现 AI 腐蚀式语言。' },
         { role: 'user', content: prompt },
       ],
     }),
