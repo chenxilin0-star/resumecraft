@@ -31,14 +31,20 @@ app.use('*', async (c, next) => {
 function json<T>(data: T, status = 200) {
   return new Response(JSON.stringify({ success: true, data }), {
     status,
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*',
+    },
   });
 }
 
 function error(message: string, status = 400) {
   return new Response(JSON.stringify({ success: false, message }), {
     status,
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*',
+    },
   });
 }
 
