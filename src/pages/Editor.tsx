@@ -18,6 +18,7 @@ import type { ResumeData } from '@/types';
 import ResumeImportModal from '@/components/ResumeImportModal';
 import { getCollectionThemeDataAttributes, getCollectionThemeStyle } from '@/utils/collectionTheme';
 import { canUseTemplate, getTemplateAccessMessage } from '@/utils/accessPolicy';
+import { AUTO_SAVE_INTERVAL_MS, buildAutoSaveSnapshot, normalizeResumeContentForSave, shouldRunAutoSave } from '@/utils/autoSave';
 
 const sectionLabels: Record<string, string> = {
   personal: '个人信息',
@@ -64,6 +65,8 @@ export default function Editor() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const resumeIdParam = searchParams.get('resumeId');
+  const initialResumeId = resumeIdParam && !Number.isNaN(Number(resumeIdParam)) ? Number(resumeIdParam) : null;
+  const [currentResumeId, setCurrentResumeId] = useState<number | null>(initialResumeId);
   const template = useMemo(() => getTemplateById(templateId || ''), [templateId]);
   const [activeThemeId, setActiveThemeId] = useState(template?.themes[0]?.id);
   const [showExportModal, setShowExportModal] = useState(false);
@@ -82,7 +85,12 @@ export default function Editor() {
 
   const store = useEditorStore();
   const { resumeData, activeSection, setActiveSection, updateSection, addItem, removeItem, zoom, setZoom, setResumeData } = store;
-  const { isAuthenticated, token, user } = useAuthStore();
+  const { isAuthenticated, user } = useAuthStore();
+
+  useEffect(() => {
+    const nextResumeId = resumeIdParam && !Number.isNaN(Number(resumeIdParam)) ? Number(resumeIdParam) : null;
+    setCurrentResumeId(nextResumeId);
+  }, [resumeIdParam]);
 
   // Load existing resume
   useEffect(() => {
@@ -117,29 +125,83 @@ export default function Editor() {
     localStorage.setItem(key, JSON.stringify({ title, resumeData, visibleSections, activeThemeId }));
   }, [resumeData, visibleSections, activeThemeId, title, templateId]);
 
-  // Cloud auto-save (debounced)
-  const cloudSaveRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const doCloudSave = useCallback(async () => {
-    if (!isAuthenticated || !token || !resumeIdParam) return;
-    setAutoSaveStatus('saving');
-    try {
-      await resumesApi.update(Number(resumeIdParam), {
-        title,
-        content: resumeData,
-      });
-      setAutoSaveStatus('saved');
-    } catch {
-      setAutoSaveStatus('error');
-    }
-  }, [isAuthenticated, token, resumeIdParam, title, resumeData]);
+  // Cloud auto-save: persist changed resumes every 30 seconds.
+  const isCloudSavingRef = useRef(false);
+  const lastSavedSnapshotRef = useRef('');
+  const latestAutoSaveRef = useRef({
+    title,
+    resumeData,
+    visibleSections,
+    activeThemeId,
+    templateId: template?.id || templateId || '',
+    snapshot: '',
+  });
+  const currentSnapshot = useMemo(() => buildAutoSaveSnapshot({
+    title,
+    templateId: template?.id || templateId || '',
+    activeThemeId,
+    visibleSections,
+    resumeData,
+  }), [title, template?.id, templateId, activeThemeId, visibleSections, resumeData]);
 
   useEffect(() => {
-    if (cloudSaveRef.current) clearTimeout(cloudSaveRef.current);
-    cloudSaveRef.current = setTimeout(() => {
-      doCloudSave();
-    }, 3000);
-    return () => { if (cloudSaveRef.current) clearTimeout(cloudSaveRef.current); };
-  }, [resumeData, title, doCloudSave]);
+    latestAutoSaveRef.current = {
+      title,
+      resumeData,
+      visibleSections,
+      activeThemeId,
+      templateId: template?.id || templateId || '',
+      snapshot: currentSnapshot,
+    };
+  }, [title, resumeData, visibleSections, activeThemeId, template?.id, templateId, currentSnapshot]);
+
+  const doCloudSave = useCallback(async (options?: { force?: boolean }) => {
+    if (!template) return;
+    const latest = latestAutoSaveRef.current;
+    if (!options?.force && !shouldRunAutoSave({
+      isAuthenticated,
+      isLoading,
+      isSaving: isCloudSavingRef.current,
+      currentSnapshot: latest.snapshot,
+      lastSavedSnapshot: lastSavedSnapshotRef.current,
+    })) return;
+    if (options?.force && isCloudSavingRef.current) return;
+
+    isCloudSavingRef.current = true;
+    setAutoSaveStatus('saving');
+    try {
+      const content = normalizeResumeContentForSave(latest.resumeData, latest.templateId || template.id);
+      if (currentResumeId) {
+        await resumesApi.update(currentResumeId, {
+          title: latest.title,
+          content,
+        });
+      } else {
+        const res = await resumesApi.create({
+          templateId: template.id,
+          title: latest.title,
+          content,
+        });
+        setCurrentResumeId(res.data.id);
+        navigate(`/editor/${template.id}?resumeId=${res.data.id}`, { replace: true });
+      }
+      lastSavedSnapshotRef.current = latest.snapshot;
+      setAutoSaveStatus('saved');
+    } catch (err) {
+      setAutoSaveStatus('error');
+      if (options?.force) setAiError(err instanceof Error ? err.message : '保存失败');
+    } finally {
+      isCloudSavingRef.current = false;
+    }
+  }, [currentResumeId, isAuthenticated, isLoading, navigate, template]);
+
+  useEffect(() => {
+    if (!isAuthenticated || !template) return;
+    const interval = setInterval(() => {
+      void doCloudSave();
+    }, AUTO_SAVE_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [doCloudSave, isAuthenticated, template]);
 
   const handleExport = async () => {
     if (!isAuthenticated) {
@@ -160,8 +222,8 @@ export default function Editor() {
         onProgress: setExportProgress,
       });
       // Log export
-      if (resumeIdParam) {
-        resumesApi.logExport(Number(resumeIdParam), { format: 'pdf', isPremiumTemplate: template?.isPremium }).catch(() => {});
+      if (currentResumeId) {
+        resumesApi.logExport(currentResumeId, { format: 'pdf', isPremiumTemplate: template?.isPremium }).catch(() => {});
       }
     } catch (e) {
       console.error(e);
@@ -268,26 +330,7 @@ export default function Editor() {
       navigate('/login');
       return;
     }
-    if (!resumeIdParam) {
-      // Create new
-      if (!template) return;
-      setAutoSaveStatus('saving');
-      try {
-        const res = await resumesApi.create({
-          templateId: template.id,
-          title,
-          content: resumeData,
-        });
-        navigate(`/editor/${template.id}?resumeId=${res.data.id}`, { replace: true });
-        setAutoSaveStatus('saved');
-      } catch (err) {
-        setAutoSaveStatus('error');
-        setAiError(err instanceof Error ? err.message : '保存失败');
-      }
-      return;
-    }
-    // Update existing
-    await doCloudSave();
+    await doCloudSave({ force: true });
   };
 
   const isVipOrAdmin = !!user?.isVip || !!user?.isAdmin;
@@ -364,6 +407,7 @@ export default function Editor() {
                 <ChevronDown className="w-4 h-4 text-gray-400" />
               </button>
             )}
+            {autoSaveStatus === 'idle' && <span className="text-xs text-gray-400">每30秒自动保存</span>}
             {autoSaveStatus === 'saving' && <span className="text-xs text-gray-400">保存中...</span>}
             {autoSaveStatus === 'saved' && <span className="text-xs text-green-500">已保存</span>}
             {autoSaveStatus === 'error' && <span className="text-xs text-red-500">保存失败</span>}
