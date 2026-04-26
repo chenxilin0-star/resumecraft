@@ -120,7 +120,7 @@ export const templateRegistry: TemplateConfig[] = [
     supportsPhoto: false,
     supportsMultiPage: true,
     defaultSections: ['personal', 'education', 'workExperience', 'projects', 'skills', 'summary'],
-    isPremium: false,
+    isPremium: true,
     category: 'academic',
     tags: ['学术', '考研', '留学'],
     thumbnail: '/templates/academic.png',

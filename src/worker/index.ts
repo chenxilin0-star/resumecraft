@@ -1,5 +1,6 @@
 import { Hono, type Context } from 'hono';
 import { buildResumeAiPrompt, normalizeAiAction } from '../utils/ai';
+import { canUseTemplate, DAILY_IP_REGISTRATION_LIMIT, FREE_AI_DAILY_LIMIT } from '../utils/accessPolicy';
 import { jwtSign, jwtVerify } from './utils/jwt';
 import { hashPassword, verifyPassword } from './utils/hash';
 
@@ -18,8 +19,9 @@ const app = new Hono<{ Bindings: Env }>();
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
 const WINDOW_MS = 15 * 60 * 1000; // 15 minutes
 const ADMIN_EMAILS = ['18328667563@163.com'];
-const FREE_AI_DAILY_LIMIT = 2;
 const FREE_EXPORT_DAILY_LIMIT = 3;
+
+const VIP_TEMPLATE_MESSAGE = '该模板为 VIP 专属，请先开通会员';
 
 
 function checkRateLimit(key: string, maxRequests: number): { allowed: boolean; retryAfter?: number } {
@@ -167,23 +169,43 @@ async function resetDailyAiIfNeeded(c: Context<{ Bindings: Env }>, userId: numbe
   return Number(row?.daily_ai_count || 0);
 }
 
-async function assertCanUseAi(c: Context<{ Bindings: Env }>, user: AuthUser, action: string) {
-  if (action !== 'expand') return;
+async function assertCanUseAi(c: Context<{ Bindings: Env }>, user: AuthUser, _action: string) {
   if (user.isVip || user.isAdmin) return;
   const count = await resetDailyAiIfNeeded(c, user.id);
   if (count >= FREE_AI_DAILY_LIMIT) {
     throw new Response(JSON.stringify({
       success: false,
-      message: `今日免费 AI 扩写次数已用完（${FREE_AI_DAILY_LIMIT}/${FREE_AI_DAILY_LIMIT}），开通会员后可不限次数使用 AI 扩写。`,
+      message: `今日免费 AI 优化次数已用完（${FREE_AI_DAILY_LIMIT}/${FREE_AI_DAILY_LIMIT}），开通会员后可不限次数使用 AI 优化。`,
       data: { code: 'FREE_AI_LIMIT_EXCEEDED', limit: FREE_AI_DAILY_LIMIT, used: count, remaining: 0 },
     }), { status: 403, headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } });
   }
 }
 
-async function consumeAiQuota(c: Context<{ Bindings: Env }>, user: AuthUser, action: string) {
-  if (action !== 'expand') return;
+async function consumeAiQuota(c: Context<{ Bindings: Env }>, user: AuthUser, _action: string) {
   if (user.isVip || user.isAdmin) return;
   await c.env.DB.prepare('UPDATE users SET daily_ai_count = daily_ai_count + 1, daily_ai_reset_at = unixepoch() WHERE id = ?').bind(user.id).run();
+}
+
+function parseContentTemplateId(content: unknown): string {
+  if (!content) return '';
+  try {
+    const parsed = typeof content === 'string' ? JSON.parse(content) : content;
+    const templateId = (parsed as { templateId?: unknown })?.templateId;
+    return typeof templateId === 'string' ? templateId : '';
+  } catch {
+    return '';
+  }
+}
+
+function templateAccessDeniedResponse(templateId: string, user: AuthUser): Response | null {
+  const isVipOrAdmin = user.isVip || user.isAdmin;
+  if (!canUseTemplate(templateId, isVipOrAdmin)) {
+    return new Response(JSON.stringify({ success: false, message: VIP_TEMPLATE_MESSAGE }), {
+      status: 403,
+      headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+    });
+  }
+  return null;
 }
 
 // Health
@@ -268,15 +290,32 @@ app.post('/api/auth/register', rateLimitMiddleware(5), async (c) => {
   if (password.length < 8) return error('Password must be at least 8 characters');
   if (!/[a-zA-Z]/.test(password) || !/[0-9]/.test(password)) return error('Password must contain letters and numbers');
 
-  const exists = await c.env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(email).first();
+  const normalizedEmail = String(email).trim().toLowerCase();
+
+  const exists = await c.env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(normalizedEmail).first();
   if (exists) return error('Email already registered', 409);
 
-  const normalizedEmail = String(email).trim().toLowerCase();
+  // IP registration rate limit
+  const ip = c.req.header('CF-Connecting-IP') || c.req.header('X-Forwarded-For') || 'unknown';
+  const today = new Date().toISOString().slice(0, 10);
+  const ipLimitRow = await c.env.DB.prepare(
+    'SELECT count FROM ip_registration_limits WHERE ip = ? AND registration_date = ?'
+  ).bind(ip, today).first<{ count: number }>();
+  const ipCount = ipLimitRow?.count || 0;
+  if (ipCount >= DAILY_IP_REGISTRATION_LIMIT) {
+    return error('同 IP 每日最多成功注册 2 个邮箱，请明日再试', 429);
+  }
+
   const role = isAdminEmail(normalizedEmail) ? 'admin' : 'user';
   const passwordHash = await hashPassword(password);
   const result = await c.env.DB.prepare(
     'INSERT INTO users (email, password_hash, nickname, role, is_vip, vip_expire_at) VALUES (?, ?, ?, ?, ?, ?)'
   ).bind(normalizedEmail, passwordHash, nickname || null, role, role === 'admin' ? 1 : 0, role === 'admin' ? 4102444800 : null).run();
+
+  // Increment IP registration count
+  await c.env.DB.prepare(
+    'INSERT INTO ip_registration_limits (ip, registration_date, count) VALUES (?, ?, 1) ON CONFLICT(ip, registration_date) DO UPDATE SET count = count + 1, updated_at = unixepoch()'
+  ).bind(ip, today).run();
 
   const userId = result.meta.last_row_id;
   const token = await jwtSign({ sub: userId, email: normalizedEmail, isVip: role === 'admin', role }, c.env.JWT_SECRET);
@@ -410,16 +449,15 @@ app.post('/api/resumes', async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const { templateId, title, content } = body;
 
-  // Look up template by slug to get numeric id and check premium
+  const accessDenied = templateAccessDeniedResponse(String(templateId || ''), user);
+  if (accessDenied) return accessDenied;
+
+  // Look up template by slug to get numeric id. Access is enforced by the
+  // allowlist policy above so stale/missing D1 template rows cannot bypass VIP.
   const templateRow = await c.env.DB.prepare(
-    'SELECT id, is_premium FROM templates WHERE slug = ?'
+    'SELECT id FROM templates WHERE slug = ?'
   ).bind(templateId).first<Record<string, unknown>>();
   const dbTemplateId = templateRow?.id ?? 0;
-  const isPremiumTemplate = templateRow?.is_premium === 1;
-
-  if (isPremiumTemplate && !user.isVip) {
-    return error('该模板为 VIP 专属，请先开通会员', 403);
-  }
 
   const result = await c.env.DB.prepare(
     'INSERT INTO resumes (user_id, template_id, title, content) VALUES (?, ?, ?, ?)'
@@ -435,8 +473,15 @@ app.put('/api/resumes/:id', async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const { title, content, isPublic, publicSlug } = body;
 
-  const existing = await c.env.DB.prepare('SELECT id FROM resumes WHERE id = ? AND user_id = ?').bind(Number(id), user.id).first();
+  const existing = await c.env.DB.prepare('SELECT id, template_id FROM resumes WHERE id = ? AND user_id = ?').bind(Number(id), user.id).first<Record<string, unknown>>();
   if (!existing) return error('Resume not found', 404);
+
+  // If content changes and includes templateId, enforce the same server-side
+  // allowlist policy as creation. Never trust frontend-only VIP badges.
+  if (content && content.templateId) {
+    const accessDenied = templateAccessDeniedResponse(String(content.templateId), user);
+    if (accessDenied) return accessDenied;
+  }
 
   await c.env.DB.prepare(
     'UPDATE resumes SET title = COALESCE(?, title), content = COALESCE(?, content), is_public = COALESCE(?, is_public), public_slug = COALESCE(?, public_slug), updated_at = unixepoch() WHERE id = ?'
@@ -462,8 +507,15 @@ app.post('/api/resumes/:id/duplicate', async (c) => {
   if (!user) return error('Unauthorized', 401);
   const id = c.req.param('id');
 
-  const row = await c.env.DB.prepare('SELECT * FROM resumes WHERE id = ? AND user_id = ?').bind(Number(id), user.id).first<Record<string, unknown>>();
+  const row = await c.env.DB.prepare(
+    'SELECT r.*, t.slug as template_slug FROM resumes r LEFT JOIN templates t ON r.template_id = t.id WHERE r.id = ? AND r.user_id = ?'
+  ).bind(Number(id), user.id).first<Record<string, unknown>>();
   if (!row) return error('Resume not found', 404);
+
+  // Re-derive template from DB slug or stored content; never trust client state.
+  const resumeTemplateId = String(row.template_slug || parseContentTemplateId(row.content));
+  const accessDenied = templateAccessDeniedResponse(resumeTemplateId, user);
+  if (accessDenied) return accessDenied;
 
   const result = await c.env.DB.prepare(
     'INSERT INTO resumes (user_id, template_id, title, content) VALUES (?, ?, ?, ?)'
@@ -681,7 +733,17 @@ app.post('/api/resumes/:id/export', async (c) => {
   if (!user) return error('Unauthorized', 401);
   const id = c.req.param('id');
   const body = await c.req.json().catch(() => ({}));
-  const { format = 'pdf', isPremiumTemplate = false } = body;
+  const { format = 'pdf' } = body;
+
+  const row = await c.env.DB.prepare(
+    'SELECT r.id, r.content, t.slug as template_slug FROM resumes r LEFT JOIN templates t ON r.template_id = t.id WHERE r.id = ? AND r.user_id = ?'
+  ).bind(Number(id), user.id).first<Record<string, unknown>>();
+  if (!row) return error('Resume not found', 404);
+
+  const resumeTemplateId = String(row.template_slug || parseContentTemplateId(row.content));
+  const accessDenied = templateAccessDeniedResponse(resumeTemplateId, user);
+  if (accessDenied) return accessDenied;
+  const isPremiumTemplate = !canUseTemplate(resumeTemplateId, false);
 
   // Check daily export limit for non-VIP users
   if (!user.isVip) {

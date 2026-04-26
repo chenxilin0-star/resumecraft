@@ -17,6 +17,7 @@ import type { AiAction } from '@/utils/ai';
 import type { ResumeData } from '@/types';
 import ResumeImportModal from '@/components/ResumeImportModal';
 import { getCollectionThemeDataAttributes, getCollectionThemeStyle } from '@/utils/collectionTheme';
+import { canUseTemplate, getTemplateAccessMessage } from '@/utils/accessPolicy';
 
 const sectionLabels: Record<string, string> = {
   personal: '个人信息',
@@ -81,7 +82,7 @@ export default function Editor() {
 
   const store = useEditorStore();
   const { resumeData, activeSection, setActiveSection, updateSection, addItem, removeItem, zoom, setZoom, setResumeData } = store;
-  const { isAuthenticated, token } = useAuthStore();
+  const { isAuthenticated, token, user } = useAuthStore();
 
   // Load existing resume
   useEffect(() => {
@@ -289,11 +290,27 @@ export default function Editor() {
     await doCloudSave();
   };
 
+  const isVipOrAdmin = !!user?.isVip || !!user?.isAdmin;
+  const templateAllowed = canUseTemplate(templateId || '', isVipOrAdmin);
+
   if (!template || !theme) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-100">
         <div className="text-center">
           <p className="text-gray-500">模板不存在</p>
+          <Button className="mt-4" onClick={() => navigate('/templates')}>
+            返回模板中心
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!templateAllowed) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-100">
+        <div className="text-center">
+          <p className="text-red-500 font-medium">{getTemplateAccessMessage(templateId || '')}</p>
           <Button className="mt-4" onClick={() => navigate('/templates')}>
             返回模板中心
           </Button>

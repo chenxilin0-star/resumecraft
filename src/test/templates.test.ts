@@ -1,13 +1,19 @@
 import { describe, it, expect } from 'vitest';
 import { templateRegistry } from '@/templates';
+import { FREE_TEMPLATE_IDS, canUseTemplate } from '@/utils/accessPolicy';
 
 describe('模板过滤', () => {
   it('应该能按免费/VIP筛选模板', () => {
     const free = templateRegistry.filter((t) => !t.isPremium);
     const premium = templateRegistry.filter((t) => t.isPremium);
-    // 8 base templates: 6 free + 2 premium; 29 collection templates all free
-    expect(free.length).toBe(35);
-    expect(premium.length).toBe(2);
+    // 5 free base templates + 29 collection templates all premium = 5 free, 32 premium
+    expect(free.length).toBe(5);
+    expect(free.map((t) => t.id)).toEqual([...FREE_TEMPLATE_IDS]);
+    expect(premium.length).toBe(32);
+    premium.forEach((template) => {
+      expect(canUseTemplate(template.id, false)).toBe(false);
+      expect(canUseTemplate(template.id, true)).toBe(true);
+    });
   });
 
   it('应该能按标签搜索模板', () => {

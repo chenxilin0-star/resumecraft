@@ -9,6 +9,8 @@ import Input from '@/components/ui/Input';
 import FadeIn from '@/components/animations/FadeIn';
 import Button from '@/components/ui/Button';
 import { getCollectionThemeDataAttributes, getCollectionThemeStyle } from '@/utils/collectionTheme';
+import { canUseTemplate, getTemplateAccessMessage } from '@/utils/accessPolicy';
+import { useAuthStore } from '@/stores/authStore';
 
 const styles = ['极简', '商务', '双栏', '清新', '创意', '时间线', '深色'];
 const styleAliases: Record<string, string[]> = {
@@ -168,6 +170,9 @@ export default function Templates() {
   const [sort, setSort] = useState<'default' | 'newest' | 'popular'>('default');
   const [previewTemplate, setPreviewTemplate] = useState<TemplateConfig | null>(null);
   const [previewThemeId, setPreviewThemeId] = useState<string>('');
+  const [accessError, setAccessError] = useState('');
+
+  const { user } = useAuthStore();
 
   const toggle = (arr: string[], val: string, setter: (v: string[]) => void) => {
     setter(arr.includes(val) ? arr.filter((x) => x !== val) : [...arr, val]);
@@ -371,6 +376,23 @@ export default function Templates() {
         </div>
       </div>
 
+      {/* Access Error Toast */}
+      <AnimatePresence>
+        {accessError && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="fixed top-20 left-1/2 -translate-x-1/2 z-[60] bg-red-50 text-red-600 px-4 py-2 rounded-lg shadow-lg border border-red-100 text-sm"
+          >
+            {accessError}
+            <button className="ml-2 text-red-400 hover:text-red-600" onClick={() => setAccessError('')}>
+              <X className="w-3 h-3 inline" />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Lightbox */}
       <AnimatePresence>
         {previewTemplate && activePreviewTheme && (
@@ -439,12 +461,19 @@ export default function Templates() {
               {/* Footer */}
               <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-100">
                 <Button variant="secondary" onClick={() => setPreviewTemplate(null)}>关闭</Button>
-                <Link to={`/editor/${previewTemplate.id}`}>
-                  <Button>
+                {canUseTemplate(previewTemplate.id, !!user?.isVip || !!user?.isAdmin) ? (
+                  <Link to={`/editor/${previewTemplate.id}`}>
+                    <Button>
+                      <Eye className="w-4 h-4 mr-1" />
+                      使用此模板
+                    </Button>
+                  </Link>
+                ) : (
+                  <Button variant="vip" onClick={() => setAccessError(getTemplateAccessMessage(previewTemplate.id))}>
                     <Eye className="w-4 h-4 mr-1" />
-                    使用此模板
+                    开通 VIP
                   </Button>
-                </Link>
+                )}
               </div>
             </motion.div>
           </motion.div>
