@@ -7,6 +7,51 @@ import StaggerContainer, { StaggerItem } from '@/components/animations/StaggerCo
 import { templateRegistry } from '@/templates';
 import Badge from '@/components/ui/Badge';
 
+function ResumePreviewMockup({ accent = '#3B82F6', compact = false }: { accent?: string; compact?: boolean }) {
+  return (
+    <div className="relative mx-auto aspect-[210/297] w-full max-w-[260px] overflow-hidden rounded-xl bg-white p-5 text-left shadow-2xl ring-1 ring-white/70">
+      <div className="absolute inset-x-0 top-0 h-2" style={{ background: accent }} />
+      <div className="flex items-start gap-3">
+        <div className="h-12 w-12 rounded-2xl" style={{ background: `${accent}22` }} />
+        <div className="flex-1 pt-1">
+          <div className="h-4 w-24 rounded-full" style={{ background: accent }} />
+          <div className="mt-2 h-2 w-36 rounded-full bg-slate-200" />
+          <div className="mt-1 h-2 w-28 rounded-full bg-slate-100" />
+        </div>
+      </div>
+      <div className="mt-6 grid grid-cols-[0.8fr_1.2fr] gap-4">
+        <div className="space-y-4">
+          {['技能', '教育', '证书'].map((title) => (
+            <div key={title}>
+              <div className="mb-2 h-2.5 w-12 rounded-full" style={{ background: accent }} />
+              <div className="space-y-1.5">
+                <div className="h-1.5 w-full rounded bg-slate-200" />
+                <div className="h-1.5 w-4/5 rounded bg-slate-100" />
+                <div className="h-1.5 w-2/3 rounded bg-slate-100" />
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="space-y-4">
+          {['工作经历', '项目经历', '自我评价'].slice(0, compact ? 2 : 3).map((title, idx) => (
+            <div key={title} className="rounded-lg border border-slate-100 p-3">
+              <div className="flex items-center justify-between">
+                <div className="h-2.5 w-16 rounded-full" style={{ background: idx === 0 ? accent : '#CBD5E1' }} />
+                <div className="h-1.5 w-10 rounded bg-slate-100" />
+              </div>
+              <div className="mt-3 space-y-1.5">
+                <div className="h-1.5 w-full rounded bg-slate-200" />
+                <div className="h-1.5 w-11/12 rounded bg-slate-100" />
+                <div className="h-1.5 w-3/4 rounded bg-slate-100" />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function HeroCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -99,7 +144,8 @@ export default function Home() {
       {/* Hero */}
       <section className="relative min-h-screen flex items-center justify-center bg-[#0F172A] overflow-hidden">
         <HeroCanvas />
-        <div className="relative z-10 text-center px-4 max-w-4xl mx-auto">
+        <div className="relative z-10 grid w-full max-w-7xl grid-cols-1 items-center gap-10 px-4 mx-auto lg:grid-cols-[0.95fr_1.05fr]">
+          <div className="text-center lg:text-left">
           <motion.h1
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -112,15 +158,25 @@ export default function Home() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.8, delay: 0.2 }}
-            className="mt-6 text-lg text-gray-400 max-w-2xl mx-auto"
+            className="mt-6 text-lg text-gray-300 max-w-2xl mx-auto lg:mx-0"
           >
-            高颜值在线简历制作平台，专业模板 + 实时预览 + 一键导出 PDF
+            高颜值在线简历制作平台，真实模板预览 + AI 内容优化 + 一键导出 PDF，免费用户也能快速完成第一份专业简历。
           </motion.p>
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.8, delay: 0.3 }}
+            className="mt-6 flex flex-wrap items-center justify-center gap-3 text-sm text-slate-200 lg:justify-start"
+          >
+            {['30+ 中文模板', '主题实时换色', 'AI 每日免费体验', '云端保存'].map((item) => (
+              <span key={item} className="rounded-full border border-white/15 bg-white/10 px-3 py-1 backdrop-blur">{item}</span>
+            ))}
+          </motion.div>
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.8, delay: 0.4 }}
-            className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4"
+            className="mt-10 flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-4"
           >
             <Link
               to="/templates"
@@ -135,6 +191,22 @@ export default function Home() {
             >
               浏览模板
             </Link>
+          </motion.div>
+          </div>
+          <motion.div
+            initial={{ opacity: 0, x: 30 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.9, delay: 0.25 }}
+            className="relative hidden min-h-[560px] items-center justify-center lg:flex"
+          >
+            <div className="absolute h-72 w-72 rounded-full bg-primary-500/25 blur-3xl" />
+            <div className="absolute left-10 top-12 w-52 -rotate-6 scale-90 opacity-90"><ResumePreviewMockup accent="#10B981" compact /></div>
+            <div className="absolute right-8 bottom-14 w-52 rotate-6 scale-90 opacity-90"><ResumePreviewMockup accent="#7C3AED" compact /></div>
+            <div className="relative w-[330px]"><ResumePreviewMockup accent="#3B82F6" /></div>
+            <div className="absolute right-8 top-20 rounded-2xl border border-white/15 bg-white/10 p-4 text-left text-white shadow-xl backdrop-blur">
+              <div className="text-xs text-slate-300">实时编辑预览</div>
+              <div className="mt-1 text-2xl font-bold">所见即所得</div>
+            </div>
           </motion.div>
         </div>
       </section>
@@ -153,8 +225,8 @@ export default function Home() {
               <FadeIn key={t.id} delay={i * 0.1}>
                 <Link to={`/editor/${t.id}`} className="group block">
                   <div className="relative aspect-[3/4] rounded-xl overflow-hidden bg-white shadow-md transition-all duration-300 group-hover:-translate-y-2 group-hover:shadow-xl">
-                    <div className="absolute inset-0 bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center">
-                      <span className="text-4xl font-bold text-gray-300">{t.name[0]}</span>
+                    <div className="absolute inset-0 bg-gradient-to-br from-gray-100 to-gray-200 p-3 flex items-center justify-center">
+                      <ResumePreviewMockup accent={t.themes[0]?.colors.primary || '#3B82F6'} compact />
                     </div>
                     {t.isPremium && (
                       <div className="absolute top-3 right-3">
@@ -246,3 +318,4 @@ export default function Home() {
     </div>
   );
 }
+

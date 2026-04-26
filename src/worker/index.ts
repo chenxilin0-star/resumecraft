@@ -17,6 +17,10 @@ const app = new Hono<{ Bindings: Env }>();
 // In-memory rate limiter (per-Worker-instance)
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
 const WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+const ADMIN_EMAILS = ['18328667563@163.com'];
+const FREE_AI_DAILY_LIMIT = 2;
+const FREE_EXPORT_DAILY_LIMIT = 3;
+
 
 function checkRateLimit(key: string, maxRequests: number): { allowed: boolean; retryAfter?: number } {
   const now = Date.now();
@@ -90,20 +94,96 @@ function error(message: string, status = 400) {
 
 // ─── Auth Helpers ───────────────────────────────────────────────────────────
 
-async function getAuthUser(c: Context<{ Bindings: Env }>): Promise<{ id: number; email: string; isVip: boolean } | null> {
+type AuthUser = { id: number; email: string; isVip: boolean; role: 'user' | 'admin'; isAdmin: boolean };
+
+function isAdminEmail(email: string): boolean {
+  return ADMIN_EMAILS.includes(email.trim().toLowerCase());
+}
+
+function isVipActive(row: Record<string, unknown>): boolean {
+  if (String(row.role || 'user') === 'admin') return true;
+  if (Number(row.is_vip || 0) !== 1) return false;
+  const expireAt = Number(row.vip_expire_at || 0);
+  return !expireAt || expireAt > Math.floor(Date.now() / 1000);
+}
+
+function userPayload(row: Record<string, unknown>): {
+  id: number;
+  email: string;
+  nickname: unknown;
+  isVip: boolean;
+  role: 'user' | 'admin';
+  isAdmin: boolean;
+  vipExpireAt: unknown;
+  limits: { aiDailyLimit: number | null; aiUsedToday: number; aiRemainingToday: number | null; exportDailyLimit: number | null };
+} {
+  const email = String(row.email || '');
+  const role = (String(row.role || (isAdminEmail(email) ? 'admin' : 'user')) === 'admin' ? 'admin' : 'user') as 'user' | 'admin';
+  const isAdmin = role === 'admin' || isAdminEmail(email);
+  const isVip = isAdmin || isVipActive({ ...row, role });
+  const aiUsedToday = Number(row.daily_ai_count || 0);
+  return {
+    id: Number(row.id),
+    email,
+    nickname: row.nickname ?? null,
+    isVip,
+    role: isAdmin ? 'admin' : role,
+    isAdmin,
+    vipExpireAt: row.vip_expire_at ?? null,
+    limits: {
+      aiDailyLimit: isVip ? null : FREE_AI_DAILY_LIMIT,
+      aiUsedToday: isVip ? 0 : aiUsedToday,
+      aiRemainingToday: isVip ? null : Math.max(0, FREE_AI_DAILY_LIMIT - aiUsedToday),
+      exportDailyLimit: isVip ? null : FREE_EXPORT_DAILY_LIMIT,
+    },
+  };
+}
+
+async function getAuthUser(c: Context<{ Bindings: Env }>): Promise<AuthUser | null> {
   const auth = c.req.header('Authorization');
   if (!auth?.startsWith('Bearer ')) return null;
   const token = auth.slice(7);
   try {
     const payload = await jwtVerify(token, c.env.JWT_SECRET);
-    return {
-      id: Number(payload.sub),
-      email: String(payload.email),
-      isVip: Boolean(payload.isVip),
-    };
+    const row = await c.env.DB.prepare(
+      'SELECT id, email, nickname, role, is_vip, vip_expire_at, daily_ai_count, daily_ai_reset_at FROM users WHERE id = ?'
+    ).bind(Number(payload.sub)).first<Record<string, unknown>>();
+    if (!row) return null;
+    const payloadUser = userPayload(row);
+    return { id: payloadUser.id, email: payloadUser.email, isVip: payloadUser.isVip, role: payloadUser.role, isAdmin: payloadUser.isAdmin };
   } catch {
     return null;
   }
+}
+
+async function resetDailyAiIfNeeded(c: Context<{ Bindings: Env }>, userId: number) {
+  const today = new Date().toISOString().slice(0, 10);
+  const row = await c.env.DB.prepare('SELECT daily_ai_count, daily_ai_reset_at FROM users WHERE id = ?').bind(userId).first<Record<string, unknown>>();
+  const resetAt = row?.daily_ai_reset_at ? new Date(Number(row.daily_ai_reset_at) * 1000).toISOString().slice(0, 10) : '';
+  if (resetAt !== today) {
+    await c.env.DB.prepare('UPDATE users SET daily_ai_count = 0, daily_ai_reset_at = unixepoch() WHERE id = ?').bind(userId).run();
+    return 0;
+  }
+  return Number(row?.daily_ai_count || 0);
+}
+
+async function assertCanUseAi(c: Context<{ Bindings: Env }>, user: AuthUser, action: string) {
+  if (action !== 'expand') return;
+  if (user.isVip || user.isAdmin) return;
+  const count = await resetDailyAiIfNeeded(c, user.id);
+  if (count >= FREE_AI_DAILY_LIMIT) {
+    throw new Response(JSON.stringify({
+      success: false,
+      message: `今日免费 AI 扩写次数已用完（${FREE_AI_DAILY_LIMIT}/${FREE_AI_DAILY_LIMIT}），开通会员后可不限次数使用 AI 扩写。`,
+      data: { code: 'FREE_AI_LIMIT_EXCEEDED', limit: FREE_AI_DAILY_LIMIT, used: count, remaining: 0 },
+    }), { status: 403, headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } });
+  }
+}
+
+async function consumeAiQuota(c: Context<{ Bindings: Env }>, user: AuthUser, action: string) {
+  if (action !== 'expand') return;
+  if (user.isVip || user.isAdmin) return;
+  await c.env.DB.prepare('UPDATE users SET daily_ai_count = daily_ai_count + 1, daily_ai_reset_at = unixepoch() WHERE id = ?').bind(user.id).run();
 }
 
 // Health
@@ -191,15 +271,17 @@ app.post('/api/auth/register', rateLimitMiddleware(5), async (c) => {
   const exists = await c.env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(email).first();
   if (exists) return error('Email already registered', 409);
 
+  const normalizedEmail = String(email).trim().toLowerCase();
+  const role = isAdminEmail(normalizedEmail) ? 'admin' : 'user';
   const passwordHash = await hashPassword(password);
   const result = await c.env.DB.prepare(
-    'INSERT INTO users (email, password_hash, nickname) VALUES (?, ?, ?)'
-  ).bind(email, passwordHash, nickname || null).run();
+    'INSERT INTO users (email, password_hash, nickname, role, is_vip, vip_expire_at) VALUES (?, ?, ?, ?, ?, ?)'
+  ).bind(normalizedEmail, passwordHash, nickname || null, role, role === 'admin' ? 1 : 0, role === 'admin' ? 4102444800 : null).run();
 
   const userId = result.meta.last_row_id;
-  const token = await jwtSign({ sub: userId, email, isVip: false }, c.env.JWT_SECRET);
+  const token = await jwtSign({ sub: userId, email: normalizedEmail, isVip: role === 'admin', role }, c.env.JWT_SECRET);
 
-  return json({ token, user: { id: userId, email, nickname: nickname || null, isVip: false } });
+  return json({ token, user: { id: userId, email: normalizedEmail, nickname: nickname || null, isVip: role === 'admin', role, isAdmin: role === 'admin' } });
 });
 
 app.post('/api/auth/login', rateLimitMiddleware(10), async (c) => {
@@ -207,39 +289,36 @@ app.post('/api/auth/login', rateLimitMiddleware(10), async (c) => {
   const { email, password } = body;
   if (!email || !password) return error('Email and password required');
 
-  const user = await c.env.DB.prepare('SELECT * FROM users WHERE email = ?').bind(email).first<Record<string, unknown>>();
+  const normalizedEmail = String(email).trim().toLowerCase();
+  const user = await c.env.DB.prepare('SELECT * FROM users WHERE email = ?').bind(normalizedEmail).first<Record<string, unknown>>();
   if (!user) return error('Invalid credentials', 401);
+
+  if (isAdminEmail(normalizedEmail) && String(user.role || 'user') !== 'admin') {
+    await c.env.DB.prepare("UPDATE users SET role = 'admin', is_vip = 1, vip_expire_at = 4102444800 WHERE id = ?").bind(Number(user.id)).run();
+    user.role = 'admin';
+    user.is_vip = 1;
+    user.vip_expire_at = 4102444800;
+  }
 
   const valid = await verifyPassword(password, String(user.password_hash));
   if (!valid) return error('Invalid credentials', 401);
 
+  const payloadUser = userPayload(user);
   const token = await jwtSign(
-    { sub: Number(user.id), email: String(user.email), isVip: user.is_vip === 1 },
+    { sub: payloadUser.id, email: payloadUser.email, isVip: payloadUser.isVip, role: payloadUser.role },
     c.env.JWT_SECRET
   );
 
-  return json({
-    token,
-    user: {
-      id: user.id,
-      email: user.email,
-      nickname: user.nickname,
-      isVip: user.is_vip === 1,
-      vipExpireAt: user.vip_expire_at,
-    },
-  });
+  return json({ token, user: payloadUser });
 });
 
 app.get('/api/auth/me', async (c) => {
   const user = await getAuthUser(c);
   if (!user) return error('Unauthorized', 401);
-  const row = await c.env.DB.prepare('SELECT id, email, nickname, is_vip, vip_expire_at FROM users WHERE id = ?').bind(user.id).first();
+  await resetDailyAiIfNeeded(c, user.id);
+  const row = await c.env.DB.prepare('SELECT id, email, nickname, role, is_vip, vip_expire_at, daily_ai_count, daily_ai_reset_at FROM users WHERE id = ?').bind(user.id).first<Record<string, unknown>>();
   if (!row) return error('User not found', 404);
-  return json({
-    ...row,
-    isVip: (row as Record<string, unknown>).is_vip === 1,
-    vipExpireAt: (row as Record<string, unknown>).vip_expire_at,
-  });
+  return json(userPayload(row));
 });
 
 // ─── Resumes CRUD ───────────────────────────────────────────────────────────
@@ -435,17 +514,27 @@ function fallbackRewriteText(original: string, action: string, section: string):
 }
 
 app.post('/api/ai/optimize', async (c) => {
+  const user = await getAuthUser(c);
+  if (!user) return error('请先登录后再使用 AI 优化功能', 401);
   const body = await c.req.json().catch(() => ({}));
   const text = String(body.text || '').trim();
   const section = String(body.section || 'summary');
   const action = normalizeAiAction(String(body.action || 'polish'));
-  const targetRole = body.targetRole ? String(body.targetRole) : undefined;
+  try {
+    await assertCanUseAi(c, user, action);
+  } catch (resp) {
+    if (resp instanceof Response) return resp;
+    throw resp;
+  }
+
+  const targetRole = String(body.targetRole || '');
   const jdText = body.jdText ? String(body.jdText) : undefined;
 
   if (!text) return error('Text required');
   if (text.length > 3000) return error('Text too long, max 3000 characters');
 
   if (isSparseInput(text) && ['polish', 'expand', 'professional', 'shorten'].includes(action)) {
+    await consumeAiQuota(c, user, action);
     return json({ text: fallbackRewriteText(text, action, section), model: 'rule-based-short-input', rewritten: true });
   }
 
@@ -488,6 +577,7 @@ app.post('/api/ai/optimize', async (c) => {
     ? fallbackRewriteText(text, action, section)
     : resultText;
 
+  await consumeAiQuota(c, user, action);
   return json({ text: finalText, model, rewritten: finalText !== resultText });
 });
 
@@ -610,7 +700,7 @@ app.post('/api/resumes/:id/export', async (c) => {
       ).bind(user.id).run();
     }
 
-    if (count >= 3) {
+    if (count >= FREE_EXPORT_DAILY_LIMIT) {
       return error('今日免费导出次数已用完，请升级会员', 403);
     }
 

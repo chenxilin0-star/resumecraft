@@ -15,22 +15,7 @@ import { useAuthStore } from '@/stores/authStore';
 import type { AiAction } from '@/utils/ai';
 import type { ResumeData } from '@/types';
 import ResumeImportModal from '@/components/ResumeImportModal';
-
-function getCollectionThemeFilter(templateId: string | undefined, themeId: string | undefined): string | undefined {
-  if (!templateId?.startsWith('cn-')) return undefined;
-  switch (themeId) {
-    case 'green':
-      return 'hue-rotate(240deg) saturate(1.15)';
-    case 'red':
-      return 'hue-rotate(145deg) saturate(1.12)';
-    case 'purple':
-      return 'hue-rotate(35deg) saturate(1.1)';
-    case 'dark':
-      return 'grayscale(0.25) contrast(1.08) brightness(0.96)';
-    default:
-      return undefined;
-  }
-}
+import { getCollectionThemeDataAttributes, getCollectionThemeStyle } from '@/utils/collectionTheme';
 
 const sectionLabels: Record<string, string> = {
   personal: '个人信息',
@@ -790,13 +775,13 @@ export default function Editor() {
         <div className="flex-1 bg-gray-200 overflow-y-auto p-8 flex justify-center relative">
           <div
             id="resume-preview"
+            {...getCollectionThemeDataAttributes(template?.id)}
             className="bg-white shadow-xl rounded-sm origin-top transition-transform"
-            style={{
+            style={getCollectionThemeStyle(template?.id, theme, {
               width: '210mm',
               minHeight: '297mm',
               transform: `scale(${zoom})`,
-              filter: getCollectionThemeFilter(template?.id, activeThemeId),
-            }}
+            })}
           >
             {TemplateComponent && <TemplateComponent data={previewData} theme={theme} />}
           </div>

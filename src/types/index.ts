@@ -4,7 +4,15 @@ export interface User {
   nickname?: string;
   avatar?: string;
   isVip: boolean;
+  role?: 'user' | 'admin';
+  isAdmin?: boolean;
   vipExpireAt?: number;
+  limits?: {
+    aiDailyLimit: number | null;
+    aiUsedToday: number;
+    aiRemainingToday: number | null;
+    exportDailyLimit: number | null;
+  };
 }
 
 export interface ResumeData {

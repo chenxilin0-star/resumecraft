@@ -5,10 +5,13 @@ CREATE TABLE IF NOT EXISTS users (
   password_hash TEXT NOT NULL,
   nickname TEXT,
   avatar TEXT,
+  role TEXT DEFAULT 'user',
   is_vip INTEGER DEFAULT 0,
   vip_expire_at INTEGER,
   daily_export_count INTEGER DEFAULT 0,
   daily_export_reset_at INTEGER,
+  daily_ai_count INTEGER DEFAULT 0,
+  daily_ai_reset_at INTEGER,
   created_at INTEGER DEFAULT (unixepoch()),
   updated_at INTEGER DEFAULT (unixepoch())
 );
@@ -113,3 +116,9 @@ INSERT OR IGNORE INTO templates (id, name, slug, description, thumbnail, categor
 (6, '学术风', 'academic', '干净、正式的学术简历风格，适合考研、申博、留学申请。', '/templates/academic.png', 6, '["学术","考研","留学"]', '{"layout":"single-column","supportsPhoto":false,"supportsMultiPage":true,"defaultSections":["personal","education","workExperience","projects","skills","summary"],"themes":[{"id":"red","name":"深红学院","colors":{"primary":"#7F1D1D","secondary":"#991B1B","accent":"#FEF2F2","background":"#FFFFFF","surface":"#FEF2F2","text":"#450A0A","textMuted":"#78716C","border":"#E7E5E4"}},{"id":"navy","name":"海军蓝","colors":{"primary":"#1E3A5F","secondary":"#1E40AF","accent":"#EFF6FF","background":"#FFFFFF","surface":"#EFF6FF","text":"#172554","textMuted":"#64748B","border":"#CBD5E1"}},{"id":"green","name":"墨绿","colors":{"primary":"#064E3B","secondary":"#065F46","accent":"#ECFDF5","background":"#FFFFFF","surface":"#ECFDF5","text":"#022C22","textMuted":"#059669","border":"#A7F3D0"}}]}', 0, 6),
 (7, '创意设计师', 'creative-designer', '大留白、强设计感的模板。空间感极强，适合设计、艺术、文创行业。', '/templates/creative-designer.png', 7, '["创意","设计","艺术"]', '{"layout":"single-column","supportsPhoto":true,"supportsMultiPage":true,"defaultSections":["personal","intention","workExperience","projects","education","skills"],"themes":[{"id":"bw","name":"极简黑白","colors":{"primary":"#000000","secondary":"#333333","accent":"#F5F5F5","background":"#FFFFFF","surface":"#FAFAFA","text":"#1A1A1A","textMuted":"#999999","border":"#E5E5E5"}},{"id":"mint","name":"薄荷绿","colors":{"primary":"#2D5A4C","secondary":"#4A7C6F","accent":"#E8F5E9","background":"#FFFFFF","surface":"#F1F8E9","text":"#1B4332","textMuted":"#95D5B2","border":"#D8F3DC"}},{"id":"pink","name":"烟粉红","colors":{"primary":"#9B2335","secondary":"#BC243C","accent":"#FDEDEC","background":"#FFFFFF","surface":"#FDEDEC","text":"#641E16","textMuted":"#D98880","border":"#F5B7B1"}}]}', 1, 7),
 (8, '时间轴', 'timeline', '采用时间轴形式展示经历，视觉冲击力强。适合工作年限较长的求职者。', '/templates/timeline.png', 8, '["时间轴","管理","高级"]', '{"layout":"single-column","supportsPhoto":true,"supportsMultiPage":true,"defaultSections":["personal","intention","workExperience","skills","education","certificates"],"themes":[{"id":"navy","name":"深蓝时间轴","colors":{"primary":"#1E3A5F","secondary":"#3B82F6","accent":"#EFF6FF","background":"#FFFFFF","surface":"#EFF6FF","text":"#1E293B","textMuted":"#64748B","border":"#BFDBFE"}},{"id":"purple","name":"紫金时间轴","colors":{"primary":"#4C1D95","secondary":"#7C3AED","accent":"#EDE9FE","background":"#FFFFFF","surface":"#EDE9FE","text":"#2E1065","textMuted":"#8B5CF6","border":"#C4B5FD"}},{"id":"cyan","name":"青蓝时间轴","colors":{"primary":"#0C4A6E","secondary":"#0EA5E9","accent":"#E0F2FE","background":"#FFFFFF","surface":"#E0F2FE","text":"#082F49","textMuted":"#0284C7","border":"#7DD3FC"}}]}', 1, 8);
+
+
+-- Production migration helpers (safe to run manually if table already exists)
+-- ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user';
+-- ALTER TABLE users ADD COLUMN daily_ai_count INTEGER DEFAULT 0;
+-- ALTER TABLE users ADD COLUMN daily_ai_reset_at INTEGER;
