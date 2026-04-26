@@ -260,7 +260,7 @@ export const collectionTemplateConfigs: TemplateConfig[] = [
     defaultSections: ["personal", "intention", "summary", "education", "workExperience", "projects", "skills", "certificates", "languages"],
     isPremium: false,
     category: 'minimal',
-    tags: ['简约', '应届', '红色'],
+    tags: ['时间线', '时间轴', '简约', '应届', '红色'],
     thumbnail: '/templates/collection/cn-012.jpg',
     themes: [
       {
@@ -575,7 +575,7 @@ export const collectionTemplateConfigs: TemplateConfig[] = [
     defaultSections: ["personal", "intention", "summary", "education", "workExperience", "projects", "skills", "certificates", "languages"],
     isPremium: false,
     category: 'sales',
-    tags: ['客户经理', '管理', '商务'],
+    tags: ['时间线', '时间轴', '客户经理', '管理', '商务'],
     thumbnail: '/templates/collection/cn-044.jpg',
     themes: [
       {
@@ -890,7 +890,7 @@ export const collectionTemplateConfigs: TemplateConfig[] = [
     defaultSections: ["personal", "intention", "summary", "education", "workExperience", "projects", "skills", "certificates", "languages"],
     isPremium: false,
     category: 'fresh',
-    tags: ['绿色', '清新', '通用'],
+    tags: ['时间线', '时间轴', '绿色', '清新', '通用'],
     thumbnail: '/templates/collection/cn-116.jpg',
     themes: [
       {

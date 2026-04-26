@@ -30,4 +30,12 @@ describe('模板过滤', () => {
       expect(t.themes.length).toBeGreaterThanOrEqual(1);
     });
   });
+
+  it('风格筛选应该包含时间线模板', () => {
+    const timelineTemplates = templateRegistry.filter((t) =>
+      t.tags.includes('时间线') || t.tags.includes('时间轴') || t.category === 'timeline'
+    );
+    expect(timelineTemplates.length).toBeGreaterThanOrEqual(3);
+    expect(timelineTemplates.some((t) => t.id === 'timeline')).toBe(true);
+  });
 });

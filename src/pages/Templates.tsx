@@ -10,6 +10,15 @@ import FadeIn from '@/components/animations/FadeIn';
 import Button from '@/components/ui/Button';
 
 const styles = ['极简', '商务', '双栏', '清新', '创意', '时间线', '深色'];
+const styleAliases: Record<string, string[]> = {
+  极简: ['极简', '简约', 'minimal'],
+  商务: ['商务', 'business'],
+  双栏: ['双栏', '分栏', 'two-column', 'modern'],
+  清新: ['清新', 'fresh'],
+  创意: ['创意', 'creative'],
+  时间线: ['时间线', '时间轴', 'timeline'],
+  深色: ['深色', '黑色', 'dark'],
+};
 const industries = ['技术', '设计', '市场', '财务', '医护', '管理', '外贸', '教育', '应届', '通用'];
 const colors = [
   { name: '蓝色', value: '#3B82F6' },
@@ -128,6 +137,14 @@ const demoLibrary: Record<string, ResumeData> = {
   },
 };
 
+function templateMatchesStyle(template: TemplateConfig, style: string): boolean {
+  const aliases = styleAliases[style] || [style];
+  const haystack = [template.category, template.layout, template.name, ...template.tags]
+    .join(' ')
+    .toLowerCase();
+  return aliases.some((alias) => haystack.includes(alias.toLowerCase()));
+}
+
 function getDemoData(template: TemplateConfig): ResumeData {
   const key = [template.category, ...template.tags, template.name].join(' ');
   if (/医护|护士|临床|medical/.test(key)) return demoLibrary.medical;
@@ -166,7 +183,7 @@ export default function Templates() {
       );
     }
     if (selectedStyles.length) {
-      list = list.filter((t) => selectedStyles.some((s) => t.tags.includes(s)));
+      list = list.filter((t) => selectedStyles.some((s) => templateMatchesStyle(t, s)));
     }
     if (selectedIndustries.length) {
       list = list.filter((t) => selectedIndustries.some((s) => t.tags.includes(s) || t.category.includes(s)));

@@ -162,7 +162,7 @@ export const templateRegistry: TemplateConfig[] = [
     defaultSections: ['personal', 'intention', 'workExperience', 'skills', 'education', 'certificates'],
     isPremium: true,
     category: 'timeline',
-    tags: ['时间轴', '管理', '高级'],
+    tags: ['时间线', '时间轴', '管理', '高级'],
     thumbnail: '/templates/timeline.png',
     themes: [
       { id: 'navy', name: '深蓝时间轴', colors: { primary: '#1E3A5F', secondary: '#3B82F6', accent: '#EFF6FF', background: '#FFFFFF', surface: '#EFF6FF', text: '#1E293B', textMuted: '#64748B', border: '#BFDBFE' }, font: { heading: 'Noto Sans SC', body: 'Noto Sans SC' } },
