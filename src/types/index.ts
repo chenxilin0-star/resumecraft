@@ -120,7 +120,8 @@ export interface TemplateCategory {
 export interface Resume {
   id: number;
   userId: number;
-  templateId: number;
+  templateId: string;
+  dbTemplateId?: number;
   title: string;
   content: ResumeData;
   isPublic: boolean;

@@ -197,6 +197,53 @@ function parseContentTemplateId(content: unknown): string {
   }
 }
 
+function parseResumeContent(content: unknown): Record<string, unknown> {
+  if (!content) return {};
+  if (typeof content !== 'string') return content as Record<string, unknown>;
+  try {
+    return JSON.parse(content) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+
+export function resolveResumeTemplateSlug(row: Record<string, unknown>): string {
+  return String(row.template_slug || parseContentTemplateId(row.content) || 'minimal-classic');
+}
+
+export function serializeResumeRow(row: Record<string, unknown>, includeContent = false) {
+  const templateId = resolveResumeTemplateSlug(row);
+  const payload: Record<string, unknown> = {
+    id: row.id,
+    templateId,
+    dbTemplateId: row.template_id,
+    title: row.title,
+    isPublic: row.is_public === 1,
+    publicSlug: row.public_slug,
+    viewCount: row.view_count,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+
+  if (includeContent) {
+    const content = parseResumeContent(row.content);
+    payload.content = { ...content, templateId: typeof content.templateId === 'string' ? content.templateId : templateId };
+  }
+
+  return payload;
+}
+
+export function buildResumeUpdateParams(body: Record<string, unknown>, id: number): [unknown, unknown, unknown, unknown, number] {
+  const { title, content, isPublic, publicSlug } = body;
+  return [
+    title !== undefined ? title : null,
+    content !== undefined ? JSON.stringify(content) : null,
+    isPublic !== undefined ? (isPublic ? 1 : 0) : null,
+    publicSlug !== undefined ? publicSlug : null,
+    id,
+  ];
+}
+
 function templateAccessDeniedResponse(templateId: string, user: AuthUser): Response | null {
   const isVipOrAdmin = user.isVip || user.isAdmin;
   if (!canUseTemplate(templateId, isVipOrAdmin)) {
@@ -367,19 +414,15 @@ app.get('/api/resumes', async (c) => {
   if (!user) return error('Unauthorized', 401);
 
   const { results } = await c.env.DB.prepare(
-    'SELECT id, template_id, title, is_public, public_slug, view_count, created_at, updated_at FROM resumes WHERE user_id = ? ORDER BY updated_at DESC'
+    `SELECT r.id, r.template_id, r.title, r.is_public, r.public_slug, r.view_count, r.created_at, r.updated_at, r.content,
+            t.slug as template_slug
+       FROM resumes r
+       LEFT JOIN templates t ON r.template_id = t.id
+      WHERE r.user_id = ?
+      ORDER BY r.updated_at DESC`
   ).bind(user.id).all();
 
-  return json(results.map((r: Record<string, unknown>) => ({
-    id: r.id,
-    templateId: r.template_id,
-    title: r.title,
-    isPublic: r.is_public === 1,
-    publicSlug: r.public_slug,
-    viewCount: r.view_count,
-    createdAt: r.created_at,
-    updatedAt: r.updated_at,
-  })));
+  return json(results.map((r: Record<string, unknown>) => serializeResumeRow(r)));
 });
 
 // IMPORTANT: specific routes before /api/resumes/:id
@@ -434,13 +477,15 @@ app.get('/api/resumes/:id', async (c) => {
   if (!user) return error('Unauthorized', 401);
   const id = c.req.param('id');
 
-  const row = await c.env.DB.prepare('SELECT * FROM resumes WHERE id = ? AND user_id = ?').bind(Number(id), user.id).first();
+  const row = await c.env.DB.prepare(
+    `SELECT r.*, t.slug as template_slug
+       FROM resumes r
+       LEFT JOIN templates t ON r.template_id = t.id
+      WHERE r.id = ? AND r.user_id = ?`
+  ).bind(Number(id), user.id).first<Record<string, unknown>>();
   if (!row) return error('Resume not found', 404);
 
-  return json({
-    ...row,
-    content: JSON.parse((row as Record<string, unknown>).content as string || '{}'),
-  });
+  return json(serializeResumeRow(row, true));
 });
 
 app.post('/api/resumes', async (c) => {
@@ -471,7 +516,7 @@ app.put('/api/resumes/:id', async (c) => {
   if (!user) return error('Unauthorized', 401);
   const id = c.req.param('id');
   const body = await c.req.json().catch(() => ({}));
-  const { title, content, isPublic, publicSlug } = body;
+  const { content } = body;
 
   const existing = await c.env.DB.prepare('SELECT id, template_id FROM resumes WHERE id = ? AND user_id = ?').bind(Number(id), user.id).first<Record<string, unknown>>();
   if (!existing) return error('Resume not found', 404);
@@ -485,7 +530,7 @@ app.put('/api/resumes/:id', async (c) => {
 
   await c.env.DB.prepare(
     'UPDATE resumes SET title = COALESCE(?, title), content = COALESCE(?, content), is_public = COALESCE(?, is_public), public_slug = COALESCE(?, public_slug), updated_at = unixepoch() WHERE id = ?'
-  ).bind(title, content ? JSON.stringify(content) : null, isPublic !== undefined ? (isPublic ? 1 : 0) : null, publicSlug, Number(id)).run();
+  ).bind(...buildResumeUpdateParams(body, Number(id))).run();
 
   return json({ id: Number(id) });
 });
