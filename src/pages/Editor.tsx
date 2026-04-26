@@ -20,7 +20,7 @@ function getCollectionThemeFilter(templateId: string | undefined, themeId: strin
   if (!templateId?.startsWith('cn-')) return undefined;
   switch (themeId) {
     case 'green':
-      return 'hue-rotate(70deg) saturate(1.08)';
+      return 'hue-rotate(240deg) saturate(1.15)';
     case 'red':
       return 'hue-rotate(145deg) saturate(1.12)';
     case 'purple':
