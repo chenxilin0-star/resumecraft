@@ -5,7 +5,8 @@ describe('模板过滤', () => {
   it('应该能按免费/VIP筛选模板', () => {
     const free = templateRegistry.filter((t) => !t.isPremium);
     const premium = templateRegistry.filter((t) => t.isPremium);
-    expect(free.length).toBe(6);
+    // 8 base templates: 6 free + 2 premium; 29 collection templates all free
+    expect(free.length).toBe(35);
     expect(premium.length).toBe(2);
   });
 
@@ -16,9 +17,17 @@ describe('模板过滤', () => {
     expect(result.length).toBeGreaterThanOrEqual(1);
   });
 
-  it('每套模板至少包含3个主题', () => {
-    templateRegistry.forEach((t) => {
+  it('基础模板至少包含3个主题', () => {
+    const baseTemplates = templateRegistry.filter((t) => !t.id.startsWith('cn-'));
+    baseTemplates.forEach((t) => {
       expect(t.themes.length).toBeGreaterThanOrEqual(3);
+    });
+  });
+
+  it('收藏模板至少包含1个主题', () => {
+    const collectionTemplates = templateRegistry.filter((t) => t.id.startsWith('cn-'));
+    collectionTemplates.forEach((t) => {
+      expect(t.themes.length).toBeGreaterThanOrEqual(1);
     });
   });
 });

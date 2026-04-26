@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
-import { Link, useLocation } from 'react-router-dom';
-import { Menu, X, FileText } from 'lucide-react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Menu, X, FileText, User, LogOut, Settings } from 'lucide-react';
 import { cn } from '@/utils/helpers';
+import { useAuthStore } from '@/stores/authStore';
 
 const navLinks = [
   { to: '/', label: '首页' },
@@ -13,12 +14,20 @@ export default function Navbar() {
   const [scrolled, setScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
+  const navigate = useNavigate();
+  const { isAuthenticated, user, logout } = useAuthStore();
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 10);
     window.addEventListener('scroll', onScroll);
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
+
+  const handleLogout = () => {
+    logout();
+    localStorage.removeItem('token');
+    navigate('/');
+  };
 
   return (
     <nav
@@ -56,18 +65,46 @@ export default function Navbar() {
         </div>
 
         <div className="hidden md:flex items-center gap-3">
-          <Link
-            to="/login"
-            className="text-sm font-medium text-gray-600 hover:text-primary-600 transition-colors"
-          >
-            登录
-          </Link>
-          <Link
-            to="/templates"
-            className="text-sm font-medium bg-primary-500 text-white px-4 py-2 rounded-md hover:bg-primary-600 transition-colors shadow-sm"
-          >
-            开始制作
-          </Link>
+          {isAuthenticated ? (
+            <>
+              <Link
+                to="/dashboard"
+                className="flex items-center gap-1.5 text-sm font-medium text-gray-600 hover:text-primary-600 transition-colors"
+              >
+                <User className="w-4 h-4" />
+                {user?.nickname || user?.email || '我的简历'}
+              </Link>
+              <Link
+                to="/account"
+                className="flex items-center gap-1 text-sm text-gray-400 hover:text-primary-600 transition-colors"
+                title="账户中心"
+              >
+                <Settings className="w-4 h-4" />
+              </Link>
+              <button
+                onClick={handleLogout}
+                className="flex items-center gap-1 text-sm text-gray-400 hover:text-red-500 transition-colors"
+              >
+                <LogOut className="w-4 h-4" />
+                退出
+              </button>
+            </>
+          ) : (
+            <>
+              <Link
+                to="/login"
+                className="text-sm font-medium text-gray-600 hover:text-primary-600 transition-colors"
+              >
+                登录
+              </Link>
+              <Link
+                to="/templates"
+                className="text-sm font-medium bg-primary-500 text-white px-4 py-2 rounded-md hover:bg-primary-600 transition-colors shadow-sm"
+              >
+                开始制作
+              </Link>
+            </>
+          )}
         </div>
 
         <button
@@ -96,13 +133,38 @@ export default function Navbar() {
                 {link.label}
               </Link>
             ))}
-            <Link
-              to="/login"
-              onClick={() => setMobileOpen(false)}
-              className="block px-3 py-2 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
-            >
-              登录
-            </Link>
+            {isAuthenticated ? (
+              <>
+                <Link
+                  to="/dashboard"
+                  onClick={() => setMobileOpen(false)}
+                  className="block px-3 py-2 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
+                >
+                  我的简历
+                </Link>
+                <Link
+                  to="/account"
+                  onClick={() => setMobileOpen(false)}
+                  className="block px-3 py-2 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
+                >
+                  账户中心
+                </Link>
+                <button
+                  onClick={() => { handleLogout(); setMobileOpen(false); }}
+                  className="block w-full text-left px-3 py-2 rounded-md text-sm font-medium text-red-500 hover:bg-red-50"
+                >
+                  退出登录
+                </button>
+              </>
+            ) : (
+              <Link
+                to="/login"
+                onClick={() => setMobileOpen(false)}
+                className="block px-3 py-2 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                登录
+              </Link>
+            )}
           </div>
         </div>
       )}

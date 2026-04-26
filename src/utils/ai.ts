@@ -1,6 +1,6 @@
-export type AiAction = 'polish' | 'expand' | 'shorten' | 'professional';
+export type AiAction = 'polish' | 'expand' | 'shorten' | 'professional' | 'diagnose' | 'jd-match' | 'star-rewrite';
 
-const ACTIONS: AiAction[] = ['polish', 'expand', 'shorten', 'professional'];
+const ACTIONS: AiAction[] = ['polish', 'expand', 'shorten', 'professional', 'diagnose', 'jd-match', 'star-rewrite'];
 
 const sectionNameMap: Record<string, string> = {
   personal: '个人信息',
@@ -23,6 +23,12 @@ const actionInstructionMap: Record<AiAction, string> = {
     '压缩为最精炼的简历 bullet points，保留核心成果、关键技术和影响力。每点不超过 25 字，适合排版紧凑的简历。',
   professional:
     '改写为资深 HR 偏好的职业化表达：强动词开头、数据驱动、结果导向、去口语化。避免"负责日常""参与一些"等弱表达。',
+  diagnose:
+    '以简历诊断专家的角度，分析这段内容的优缺点。指出：1) 信息密度是否足够；2) 是否有量化成果；3) 是否有弱表达或空泛描述；4) 改进建议。输出格式为「优点 / 不足 / 建议」三段。',
+  'jd-match':
+    '根据目标岗位 JD，分析这段经历与岗位的匹配度，并给出优化建议。突出与岗位关键词对齐的能力，弱化不相关内容。保留事实，不编造数据。',
+  'star-rewrite':
+    '用 STAR 法则（情境-任务-行动-结果）重写这段经历。确保每段经历都包含：背景/挑战、你的具体职责、采取的关键行动、可量化的结果。不要编造未提及的数据。',
 };
 
 export function normalizeAiAction(action: string): AiAction {
@@ -34,6 +40,7 @@ export interface BuildResumeAiPromptInput {
   section: string;
   text: string;
   targetRole?: string;
+  jdText?: string;
 }
 
 export function getSectionDisplayName(section: string): string {
@@ -76,17 +83,24 @@ function getSectionRules(section: string): string {
   }
 }
 
-export function buildResumeAiPrompt({ action, section, text, targetRole }: BuildResumeAiPromptInput): string {
+export function buildResumeAiPrompt({ action, section, text, targetRole, jdText }: BuildResumeAiPromptInput): string {
   const normalizedAction = normalizeAiAction(action);
   const sectionName = getSectionDisplayName(section);
   const role = targetRole?.trim() || '未指定岗位';
 
-  return [
+  const parts = [
     `你是一名拥有 10 年经验的中文简历优化专家，曾为头部互联网公司筛选过数万份简历。你的任务是将普通描述改写为专业级简历内容。`,
     '',
     `## 当前模块：${sectionName}`,
     `## 目标岗位：${role}`,
     `## 优化指令：${actionInstructionMap[normalizedAction]}`,
+  ];
+
+  if (jdText && normalizedAction === 'jd-match') {
+    parts.push(`## 岗位 JD\n${jdText.trim()}`);
+  }
+
+  parts.push(
     '',
     '## 该模块的写作规则',
     getSectionRules(section),
@@ -101,5 +115,7 @@ export function buildResumeAiPrompt({ action, section, text, targetRole }: Build
     '---',
     `请优化以下内容：`,
     text.trim(),
-  ].join('\n');
+  );
+
+  return parts.join('\n');
 }

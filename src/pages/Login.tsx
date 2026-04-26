@@ -1,11 +1,15 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { FileText } from 'lucide-react';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
 import FadeIn from '@/components/animations/FadeIn';
+import { authApi } from '@/api/auth';
+import { useAuthStore } from '@/stores/authStore';
 
 export default function Login() {
+  const navigate = useNavigate();
+  const { setAuth } = useAuthStore();
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -16,12 +20,36 @@ export default function Login() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+
+    if (mode === 'register') {
+      if (password.length < 8) {
+        setError('密码至少8位');
+        return;
+      }
+      if (!/[a-zA-Z]/.test(password) || !/[0-9]/.test(password)) {
+        setError('密码必须包含字母和数字');
+        return;
+      }
+    }
+
     setLoading(true);
-    // Placeholder: real auth integration in later phase
-    setTimeout(() => {
+    try {
+      if (mode === 'login') {
+        const res = await authApi.login({ email, password });
+        setAuth(res.data.user, res.data.token);
+        localStorage.setItem('token', res.data.token);
+        navigate('/dashboard');
+      } else {
+        const res = await authApi.register({ email, password, nickname });
+        setAuth(res.data.user, res.data.token);
+        localStorage.setItem('token', res.data.token);
+        navigate('/dashboard');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '请求失败');
+    } finally {
       setLoading(false);
-      setError('阶段一仅展示界面，登录功能待接入后端');
-    }, 600);
+    }
   };
 
   return (

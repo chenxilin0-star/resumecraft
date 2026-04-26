@@ -82,7 +82,7 @@ export default function Home() {
   const featured = templateRegistry.slice(0, 5);
 
   const steps = [
-    { icon: Layers, title: '选模板', desc: '从 8+ 套精美模板中挑选心仪风格' },
+    { icon: Layers, title: '选模板', desc: '从 30+ 套精美模板中挑选心仪风格' },
     { icon: Edit3, title: '填内容', desc: '模块化编辑，实时预览效果' },
     { icon: Download, title: '导出来', desc: '一键导出高清 PDF，随时投递' },
   ];
@@ -90,7 +90,7 @@ export default function Home() {
   const features = [
     { icon: Sparkles, title: '专业设计师精心打磨', desc: '每套模板都经过设计师反复推敲' },
     { icon: Palette, title: '实时预览，所见即所得', desc: '编辑与预览同步，零延迟响应' },
-    { icon: Zap, title: '一键导出 PDF/Word', desc: '前端生成，样式 100% 一致' },
+    { icon: Zap, title: '一键导出 PDF', desc: '前端生成，样式 100% 一致' },
     { icon: Shield, title: '数据安全，云端同步', desc: '简历数据加密存储，多端同步' },
   ];
 
@@ -114,7 +114,7 @@ export default function Home() {
             transition={{ duration: 0.8, delay: 0.2 }}
             className="mt-6 text-lg text-gray-400 max-w-2xl mx-auto"
           >
-            高颜值在线简历制作平台，专业模板 + 实时预览 + 一键导出
+            高颜值在线简历制作平台，专业模板 + 实时预览 + 一键导出 PDF
           </motion.p>
           <motion.div
             initial={{ opacity: 0, y: 20 }}

@@ -8,6 +8,8 @@ import Editor from '@/pages/Editor';
 import Dashboard from '@/pages/Dashboard';
 import Login from '@/pages/Login';
 import Pricing from '@/pages/Pricing';
+import Account from '@/pages/Account';
+import PublicResume from '@/pages/PublicResume';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -38,6 +40,8 @@ export default function App() {
           <Route path="/pricing" element={<Layout><Pricing /></Layout>} />
           <Route path="/login" element={<Login />} />
           <Route path="/dashboard" element={<Layout><Dashboard /></Layout>} />
+          <Route path="/account" element={<Layout><Account /></Layout>} />
+          <Route path="/r/:slug" element={<PublicResume />} />
           <Route path="/editor/:templateId" element={<Editor />} />
         </Routes>
       </BrowserRouter>

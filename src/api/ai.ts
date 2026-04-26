@@ -6,6 +6,7 @@ export interface AiOptimizeRequest {
   section: string;
   text: string;
   targetRole?: string;
+  jdText?: string;
 }
 
 export interface AiOptimizeResponse {

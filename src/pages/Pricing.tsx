@@ -1,7 +1,14 @@
-import { Check, Sparkles } from 'lucide-react';
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Check, Sparkles, Gift, Loader2, AlertCircle, CheckCircle } from 'lucide-react';
 import Button from '@/components/ui/Button';
+import Input from '@/components/ui/Input';
 import FadeIn from '@/components/animations/FadeIn';
 import StaggerContainer, { StaggerItem } from '@/components/animations/StaggerContainer';
+import { useAuthStore } from '@/stores/authStore';
+import { ordersApi } from '@/api/orders';
+import { api } from '@/api/client';
+import { isValidRedeemCode, formatRedeemCode } from '@/utils/validate';
 
 const plans = [
   {
@@ -12,16 +19,20 @@ const plans = [
     cta: '免费使用',
     variant: 'secondary' as const,
     popular: false,
+    type: null,
+    amount: 0,
   },
   {
     name: '月度会员',
     price: '¥19.9',
     period: '/月',
     desc: '无限次导出 + 全部高级模板',
-    features: ['全部 8+ 套模板', '无限次 PDF 导出', 'AI 智能辅助写作', '简历诊断报告', '无广告体验'],
+    features: ['全部 30+ 套模板', '无限次 PDF 导出', 'AI 智能辅助写作', '简历诊断报告', '无广告体验'],
     cta: '立即订阅',
     variant: 'primary' as const,
     popular: true,
+    type: 'monthly' as const,
+    amount: 1990,
   },
   {
     name: '单次导出',
@@ -32,10 +43,81 @@ const plans = [
     cta: '单次购买',
     variant: 'secondary' as const,
     popular: false,
+    type: 'single' as const,
+    amount: 590,
   },
 ];
 
 export default function Pricing() {
+  const navigate = useNavigate();
+  const { isAuthenticated, token, setAuth } = useAuthStore();
+  const [redeemCode, setRedeemCode] = useState('');
+  const [redeemLoading, setRedeemLoading] = useState(false);
+  const [redeemMsg, setRedeemMsg] = useState('');
+  const [redeemError, setRedeemError] = useState('');
+  const [orderLoading, setOrderLoading] = useState<string | null>(null);
+  const [orderMsg, setOrderMsg] = useState('');
+
+  const handleRedeem = async () => {
+    setRedeemMsg('');
+    setRedeemError('');
+    const formatted = formatRedeemCode(redeemCode);
+    if (!isValidRedeemCode(formatted)) {
+      setRedeemError('兑换码格式不正确，应为 XXXX-XXXX-XXXX');
+      return;
+    }
+    if (!isAuthenticated) {
+      navigate('/login');
+      return;
+    }
+    setRedeemLoading(true);
+    try {
+      const res = await api.post<{ expireAt: number }>('/api/redeem', { code: formatted });
+      setRedeemMsg(res.message || '兑换成功');
+      setRedeemCode('');
+      if (token) {
+        const me = await api.get<{ isVip: boolean; vipExpireAt?: number; email: string; nickname?: string; id: number }>('/api/auth/me');
+        if (me.data) {
+          setAuth(
+            {
+              id: me.data.id,
+              email: me.data.email,
+              nickname: me.data.nickname,
+              isVip: me.data.isVip,
+              vipExpireAt: me.data.vipExpireAt,
+            },
+            token
+          );
+        }
+      }
+    } catch (err) {
+      setRedeemError(err instanceof Error ? err.message : '兑换失败');
+    } finally {
+      setRedeemLoading(false);
+    }
+  };
+
+  const handleCreateOrder = async (plan: typeof plans[number]) => {
+    if (!plan.type) {
+      navigate('/templates');
+      return;
+    }
+    if (!isAuthenticated) {
+      navigate('/login');
+      return;
+    }
+    setOrderLoading(plan.type);
+    setOrderMsg('');
+    try {
+      const res = await ordersApi.create({ type: plan.type, amount: plan.amount });
+      setOrderMsg(`订单 ${res.data.orderNo} 已创建，请联系客服完成支付后激活会员`);
+    } catch (err) {
+      setOrderMsg(err instanceof Error ? err.message : '创建订单失败');
+    } finally {
+      setOrderLoading(null);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 pt-16">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
@@ -78,18 +160,67 @@ export default function Pricing() {
                     </li>
                   ))}
                 </ul>
-                <Button variant={plan.variant} className="w-full mt-8">
-                  {plan.cta}
+                <Button
+                  variant={plan.variant}
+                  className="w-full mt-8"
+                  onClick={() => handleCreateOrder(plan)}
+                  disabled={!!orderLoading && orderLoading === plan.type}
+                >
+                  {orderLoading && orderLoading === plan.type ? <Loader2 className="w-4 h-4 animate-spin" /> : plan.cta}
                 </Button>
               </div>
             </StaggerItem>
           ))}
         </StaggerContainer>
 
+        {/* Redeem */}
         <FadeIn delay={0.3}>
+          <div className="max-w-md mx-auto mt-12 bg-white rounded-xl border border-gray-100 p-6 shadow-sm">
+            <div className="flex items-center gap-2 mb-4">
+              <Gift className="w-5 h-5 text-primary-600" />
+              <h3 className="text-base font-semibold text-gray-900">兑换码激活</h3>
+            </div>
+            <div className="flex gap-2">
+              <Input
+                placeholder="输入兑换码 XXXX-XXXX-XXXX"
+                value={redeemCode}
+                onChange={(e) => setRedeemCode(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleRedeem();
+                }}
+                className="flex-1"
+              />
+              <Button onClick={handleRedeem} disabled={redeemLoading}>
+                {redeemLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : '兑换'}
+              </Button>
+            </div>
+            {redeemMsg && (
+              <div className="mt-3 flex items-center gap-1 text-sm text-green-600">
+                <CheckCircle className="w-4 h-4" />
+                {redeemMsg}
+              </div>
+            )}
+            {redeemError && (
+              <div className="mt-3 flex items-center gap-1 text-sm text-red-600">
+                <AlertCircle className="w-4 h-4" />
+                {redeemError}
+              </div>
+            )}
+          </div>
+        </FadeIn>
+
+        {orderMsg && (
+          <FadeIn delay={0.1}>
+            <div className="max-w-lg mx-auto mt-6 p-4 bg-blue-50 text-blue-700 rounded-lg text-sm text-center">
+              {orderMsg}
+            </div>
+          </FadeIn>
+        )}
+
+        <FadeIn delay={0.4}>
           <div className="mt-16 text-center">
             <p className="text-sm text-gray-500">
-              阶段一暂不接入真实支付，仅展示界面。后续将支持微信支付。
+              阶段一暂不接入真实支付，仅展示界面与订单闭环。后续将支持微信支付。
             </p>
           </div>
         </FadeIn>

@@ -7,6 +7,8 @@ import InternetTemplate from './InternetTemplate';
 import AcademicTemplate from './AcademicTemplate';
 import CreativeTemplate from './CreativeTemplate';
 import TimelineTemplate from './TimelineTemplate';
+import { collectionTemplateConfigs } from './collection';
+import { realTemplateComponents } from './real';
 
 export const templateRegistry: TemplateConfig[] = [
   {
@@ -169,6 +171,7 @@ export const templateRegistry: TemplateConfig[] = [
     ],
     fonts: { heading: 'Noto Sans SC', body: 'Noto Sans SC' },
   },
+  ...collectionTemplateConfigs,
 ];
 
 export const templateComponents: Record<string, React.FC<{ data: import('@/types').ResumeData; theme: import('@/types').TemplateTheme }>> = {
@@ -180,6 +183,7 @@ export const templateComponents: Record<string, React.FC<{ data: import('@/types
   'academic': AcademicTemplate,
   'creative-designer': CreativeTemplate,
   'timeline': TimelineTemplate,
+  ...realTemplateComponents,
 };
 
 export function getTemplateById(id: string): TemplateConfig | undefined {

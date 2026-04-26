@@ -133,3 +133,14 @@ export interface AuthState {
   token: string | null;
   isAuthenticated: boolean;
 }
+
+export interface Order {
+  id: number;
+  orderNo: string;
+  type: string;
+  amount: number;
+  status: string;
+  payMethod?: string;
+  payTime?: number;
+  createdAt: number;
+}

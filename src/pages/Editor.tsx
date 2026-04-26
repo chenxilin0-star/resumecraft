@@ -1,6 +1,6 @@
-import { useState, useMemo, useRef, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Eye, Save, Download, ChevronDown, Plus, GripVertical, Settings, Sparkles, Loader2, Trash2 } from 'lucide-react';
+import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import { ArrowLeft, Eye, Save, Download, ChevronDown, Plus, GripVertical, Settings, Sparkles, Loader2, Trash2, X, Check, Upload } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useEditorStore } from '@/stores/editorStore';
 import { getTemplateById, templateComponents } from '@/templates';
@@ -10,8 +10,11 @@ import Input from '@/components/ui/Input';
 import Modal from '@/components/ui/Modal';
 import { cn } from '@/utils/helpers';
 import { aiApi } from '@/api/ai';
+import { resumesApi } from '@/api/resumes';
+import { useAuthStore } from '@/stores/authStore';
 import type { AiAction } from '@/utils/ai';
 import type { ResumeData } from '@/types';
+import ResumeImportModal from '@/components/ResumeImportModal';
 
 const sectionLabels: Record<string, string> = {
   personal: '个人信息',
@@ -25,32 +28,39 @@ const sectionLabels: Record<string, string> = {
   languages: '语言能力',
 };
 
+const arraySections = ['education', 'workExperience', 'projects', 'skills', 'certificates', 'languages'] as const;
+type ArraySection = typeof arraySections[number];
+
+function getEmptyItem(section: ArraySection): unknown {
+  switch (section) {
+    case 'education': return { school: '', degree: '', major: '', period: '' };
+    case 'workExperience': return { company: '', position: '', period: '', description: '' };
+    case 'projects': return { name: '', role: '', period: '', description: '' };
+    case 'skills': return { name: '', level: 3 };
+    case 'certificates': return { name: '', date: '', description: '' };
+    case 'languages': return { language: '', level: '' };
+  }
+}
+
 function getEmptySectionData(section: string): unknown {
   switch (section) {
-    case 'intention':
-      return { position: '', city: '', salary: '', availableTime: '' };
-    case 'education':
-      return [{ school: '', degree: '', major: '', period: '' }];
-    case 'workExperience':
-      return [{ company: '', position: '', period: '', description: '' }];
-    case 'projects':
-      return [{ name: '', role: '', period: '', description: '' }];
-    case 'skills':
-      return [{ name: '', level: 3 }];
-    case 'certificates':
-      return [{ name: '', date: '', description: '' }];
-    case 'languages':
-      return [{ language: '', level: '' }];
-    case 'summary':
-      return '';
-    default:
-      return undefined;
+    case 'intention': return { position: '', city: '', salary: '', availableTime: '' };
+    case 'education': return [{ school: '', degree: '', major: '', period: '' }];
+    case 'workExperience': return [{ company: '', position: '', period: '', description: '' }];
+    case 'projects': return [{ name: '', role: '', period: '', description: '' }];
+    case 'skills': return [{ name: '', level: 3 }];
+    case 'certificates': return [{ name: '', date: '', description: '' }];
+    case 'languages': return [{ language: '', level: '' }];
+    case 'summary': return '';
+    default: return undefined;
   }
 }
 
 export default function Editor() {
   const { templateId } = useParams<{ templateId: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const resumeIdParam = searchParams.get('resumeId');
   const template = useMemo(() => getTemplateById(templateId || ''), [templateId]);
   const [activeThemeId, setActiveThemeId] = useState(template?.themes[0]?.id);
   const [showExportModal, setShowExportModal] = useState(false);
@@ -60,8 +70,35 @@ export default function Editor() {
   const [aiError, setAiError] = useState('');
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [visibleSections, setVisibleSections] = useState<string[]>(() => template?.defaultSections || []);
+  const [autoSaveStatus, setAutoSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [isLoading, setIsLoading] = useState(!!resumeIdParam);
+  const [title, setTitle] = useState('未命名简历');
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
 
-  const { resumeData, activeSection, setActiveSection, updateSection, zoom, setZoom } = useEditorStore();
+  const store = useEditorStore();
+  const { resumeData, activeSection, setActiveSection, updateSection, addItem, removeItem, zoom, setZoom, setResumeData } = store;
+  const { isAuthenticated, token } = useAuthStore();
+
+  // Load existing resume
+  useEffect(() => {
+    if (!resumeIdParam) return;
+    const id = Number(resumeIdParam);
+    if (!id || Number.isNaN(id)) return;
+    setIsLoading(true);
+    resumesApi.getById(id)
+      .then((res) => {
+        const r = res.data;
+        setTitle(r.title);
+        if (r.content) {
+          setResumeData(r.content as ResumeData);
+        }
+      })
+      .catch(() => {
+        // ignore
+      })
+      .finally(() => setIsLoading(false));
+  }, [resumeIdParam, setResumeData]);
 
   const theme = useMemo(
     () => template?.themes.find((t) => t.id === activeThemeId) || template?.themes[0],
@@ -70,7 +107,46 @@ export default function Editor() {
 
   const TemplateComponent = template ? templateComponents[template.id] : null;
 
+  // Auto-save to LocalStorage
+  useEffect(() => {
+    const key = `resume-draft-${templateId || 'default'}`;
+    localStorage.setItem(key, JSON.stringify({ title, resumeData, visibleSections, activeThemeId }));
+  }, [resumeData, visibleSections, activeThemeId, title, templateId]);
+
+  // Cloud auto-save (debounced)
+  const cloudSaveRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const doCloudSave = useCallback(async () => {
+    if (!isAuthenticated || !token || !resumeIdParam) return;
+    setAutoSaveStatus('saving');
+    try {
+      await resumesApi.update(Number(resumeIdParam), {
+        title,
+        content: resumeData,
+      });
+      setAutoSaveStatus('saved');
+    } catch {
+      setAutoSaveStatus('error');
+    }
+  }, [isAuthenticated, token, resumeIdParam, title, resumeData]);
+
+  useEffect(() => {
+    if (cloudSaveRef.current) clearTimeout(cloudSaveRef.current);
+    cloudSaveRef.current = setTimeout(() => {
+      doCloudSave();
+    }, 3000);
+    return () => { if (cloudSaveRef.current) clearTimeout(cloudSaveRef.current); };
+  }, [resumeData, title, doCloudSave]);
+
   const handleExport = async () => {
+    if (!isAuthenticated) {
+      navigate('/login');
+      return;
+    }
+    // Check premium template permission
+    if (template?.isPremium) {
+      // TODO: check VIP status from auth store
+      // For now allow all since we haven't implemented payment
+    }
     setShowExportModal(true);
     setExportProgress(0);
     try {
@@ -79,6 +155,10 @@ export default function Editor() {
         filename: `${resumeData.personal.name || '简历'}_${template?.name || ''}`,
         onProgress: setExportProgress,
       });
+      // Log export
+      if (resumeIdParam) {
+        resumesApi.logExport(Number(resumeIdParam), { format: 'pdf', isPremiumTemplate: template?.isPremium }).catch(() => {});
+      }
     } catch (e) {
       console.error(e);
     } finally {
@@ -163,6 +243,36 @@ export default function Editor() {
     return data as unknown as ResumeData;
   }, [resumeData, visibleSections]);
 
+  // Multi-item helpers
+  const isArraySection = (s: string): s is ArraySection => arraySections.includes(s as ArraySection);
+
+  const handleSave = async () => {
+    if (!isAuthenticated) {
+      navigate('/login');
+      return;
+    }
+    if (!resumeIdParam) {
+      // Create new
+      if (!template) return;
+      setAutoSaveStatus('saving');
+      try {
+        const res = await resumesApi.create({
+          templateId: template.id,
+          title,
+          content: resumeData,
+        });
+        navigate(`/editor/${template.id}?resumeId=${res.data.id}`, { replace: true });
+        setAutoSaveStatus('saved');
+      } catch (err) {
+        setAutoSaveStatus('error');
+        setAiError(err instanceof Error ? err.message : '保存失败');
+      }
+      return;
+    }
+    // Update existing
+    await doCloudSave();
+  };
+
   if (!template || !theme) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-100">
@@ -171,6 +281,17 @@ export default function Editor() {
           <Button className="mt-4" onClick={() => navigate('/templates')}>
             返回模板中心
           </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-100">
+        <div className="text-center">
+          <Loader2 className="w-8 h-8 animate-spin text-primary-600 mx-auto mb-2" />
+          <p className="text-gray-500">加载中...</p>
         </div>
       </div>
     );
@@ -185,8 +306,34 @@ export default function Editor() {
             <ArrowLeft className="w-5 h-5 text-gray-600" />
           </button>
           <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-gray-500">未命名简历</span>
-            <ChevronDown className="w-4 h-4 text-gray-400" />
+            {editingTitle ? (
+              <div className="flex items-center gap-1">
+                <input
+                  className="text-sm font-medium border border-gray-300 rounded px-2 py-1 w-48"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  autoFocus
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') setEditingTitle(false);
+                    if (e.key === 'Escape') setEditingTitle(false);
+                  }}
+                />
+                <button onClick={() => setEditingTitle(false)} className="p-1 text-green-600 hover:bg-green-50 rounded">
+                  <Check className="w-4 h-4" />
+                </button>
+                <button onClick={() => setEditingTitle(false)} className="p-1 text-gray-400 hover:bg-gray-100 rounded">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            ) : (
+              <button onClick={() => setEditingTitle(true)} className="flex items-center gap-1 text-sm font-medium text-gray-500 hover:text-gray-700">
+                <span>{title}</span>
+                <ChevronDown className="w-4 h-4 text-gray-400" />
+              </button>
+            )}
+            {autoSaveStatus === 'saving' && <span className="text-xs text-gray-400">保存中...</span>}
+            {autoSaveStatus === 'saved' && <span className="text-xs text-green-500">已保存</span>}
+            {autoSaveStatus === 'error' && <span className="text-xs text-red-500">保存失败</span>}
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -194,9 +341,13 @@ export default function Editor() {
             <Eye className="w-4 h-4 mr-1" />
             预览
           </Button>
-          <Button variant="secondary" size="sm">
+          <Button variant="secondary" size="sm" onClick={handleSave}>
             <Save className="w-4 h-4 mr-1" />
             保存
+          </Button>
+          <Button variant="secondary" size="sm" onClick={() => setShowImportModal(true)}>
+            <Upload className="w-4 h-4 mr-1" />
+            导入
           </Button>
           <Button variant="vip" size="sm" onClick={handleExport}>
             <Download className="w-4 h-4 mr-1" />
@@ -212,7 +363,7 @@ export default function Editor() {
           {!leftCollapsed && (
             <motion.aside
               initial={{ width: 0, opacity: 0 }}
-              animate={{ width: 380, opacity: 1 }}
+              animate={{ width: 420, opacity: 1 }}
               exit={{ width: 0, opacity: 0 }}
               transition={{ duration: 0.25 }}
               className="bg-white border-r border-gray-200 overflow-y-auto flex-shrink-0"
@@ -281,8 +432,6 @@ export default function Editor() {
                                 setVisibleSections([...visibleSections, key]);
                                 setActiveSection(key);
                                 setShowAddMenu(false);
-                                // Initialize empty data in store if undefined
-                                const store = useEditorStore.getState();
                                 const data = store.resumeData as unknown as Record<string, unknown>;
                                 if (data[key] === undefined) {
                                   store.updateSection(key as never, getEmptySectionData(key) as never);
@@ -302,9 +451,20 @@ export default function Editor() {
 
                 {/* Form Area */}
                 <div className="border-t border-gray-100 pt-5">
-                  <h3 className="text-sm font-semibold text-gray-700 mb-3">
-                    {sectionLabels[activeSection] || activeSection}
-                  </h3>
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-semibold text-gray-700">
+                      {sectionLabels[activeSection] || activeSection}
+                    </h3>
+                    {isArraySection(activeSection) && (
+                      <button
+                        onClick={() => addItem(activeSection, getEmptyItem(activeSection))}
+                        className="text-xs flex items-center gap-1 text-primary-600 hover:text-primary-700"
+                      >
+                        <Plus className="w-3 h-3" />
+                        添加条目
+                      </button>
+                    )}
+                  </div>
                   <div className="space-y-4">
                     {canUseAi && (
                       <div className="rounded-xl border border-primary-100 bg-primary-50/70 p-3">
@@ -351,107 +511,155 @@ export default function Editor() {
                       </>
                     )}
                     {activeSection === 'education' && (
-                      <>
-                        <Input label="学校" value={resumeData.education[0]?.school || ''} onChange={(e) => {
-                          const edu = [...resumeData.education];
-                          edu[0] = { ...edu[0], school: e.target.value };
-                          updateSection('education', edu);
-                        }} />
-                        <Input label="学历" value={resumeData.education[0]?.degree || ''} onChange={(e) => {
-                          const edu = [...resumeData.education];
-                          edu[0] = { ...edu[0], degree: e.target.value };
-                          updateSection('education', edu);
-                        }} />
-                        <Input label="专业" value={resumeData.education[0]?.major || ''} onChange={(e) => {
-                          const edu = [...resumeData.education];
-                          edu[0] = { ...edu[0], major: e.target.value };
-                          updateSection('education', edu);
-                        }} />
-                        <Input label="时间段" value={resumeData.education[0]?.period || ''} onChange={(e) => {
-                          const edu = [...resumeData.education];
-                          edu[0] = { ...edu[0], period: e.target.value };
-                          updateSection('education', edu);
-                        }} />
-                      </>
+                      <div className="space-y-4">
+                        {(resumeData.education || []).map((edu, idx) => (
+                          <div key={idx} className="border border-gray-200 rounded-lg p-3 space-y-3 relative">
+                            <button
+                              className="absolute top-2 right-2 p-1 text-gray-400 hover:text-red-500"
+                              onClick={() => removeItem('education', idx)}
+                              title="删除"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                            <p className="text-xs text-gray-400 font-medium">第 {idx + 1} 条</p>
+                            <Input label="学校" value={edu.school || ''} onChange={(e) => {
+                              const arr = [...resumeData.education];
+                              arr[idx] = { ...arr[idx], school: e.target.value };
+                              updateSection('education', arr);
+                            }} />
+                            <Input label="学历" value={edu.degree || ''} onChange={(e) => {
+                              const arr = [...resumeData.education];
+                              arr[idx] = { ...arr[idx], degree: e.target.value };
+                              updateSection('education', arr);
+                            }} />
+                            <Input label="专业" value={edu.major || ''} onChange={(e) => {
+                              const arr = [...resumeData.education];
+                              arr[idx] = { ...arr[idx], major: e.target.value };
+                              updateSection('education', arr);
+                            }} />
+                            <Input label="时间段" value={edu.period || ''} onChange={(e) => {
+                              const arr = [...resumeData.education];
+                              arr[idx] = { ...arr[idx], period: e.target.value };
+                              updateSection('education', arr);
+                            }} />
+                          </div>
+                        ))}
+                      </div>
                     )}
                     {activeSection === 'workExperience' && (
-                      <>
-                        <Input label="公司" value={resumeData.workExperience[0]?.company || ''} onChange={(e) => {
-                          const w = [...resumeData.workExperience];
-                          w[0] = { ...w[0], company: e.target.value };
-                          updateSection('workExperience', w);
-                        }} />
-                        <Input label="岗位" value={resumeData.workExperience[0]?.position || ''} onChange={(e) => {
-                          const w = [...resumeData.workExperience];
-                          w[0] = { ...w[0], position: e.target.value };
-                          updateSection('workExperience', w);
-                        }} />
-                        <Input label="时间段" value={resumeData.workExperience[0]?.period || ''} onChange={(e) => {
-                          const w = [...resumeData.workExperience];
-                          w[0] = { ...w[0], period: e.target.value };
-                          updateSection('workExperience', w);
-                        }} />
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">工作内容</label>
-                          <textarea
-                            className="w-full px-3.5 py-2 text-sm bg-white border border-gray-300 rounded-md focus:outline-none focus:border-primary-500 focus:ring-3 focus:ring-primary-100 min-h-[120px] resize-y"
-                            value={resumeData.workExperience[0]?.description || ''}
-                            onChange={(e) => {
-                              const w = [...resumeData.workExperience];
-                              w[0] = { ...(w[0] || { company: '', position: '', period: '', description: '' }), description: e.target.value };
-                              updateSection('workExperience', w);
-                            }}
-                          />
-                        </div>
-                      </>
+                      <div className="space-y-4">
+                        {(resumeData.workExperience || []).map((work, idx) => (
+                          <div key={idx} className="border border-gray-200 rounded-lg p-3 space-y-3 relative">
+                            <button
+                              className="absolute top-2 right-2 p-1 text-gray-400 hover:text-red-500"
+                              onClick={() => removeItem('workExperience', idx)}
+                              title="删除"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                            <p className="text-xs text-gray-400 font-medium">第 {idx + 1} 条</p>
+                            <Input label="公司" value={work.company || ''} onChange={(e) => {
+                              const arr = [...resumeData.workExperience];
+                              arr[idx] = { ...arr[idx], company: e.target.value };
+                              updateSection('workExperience', arr);
+                            }} />
+                            <Input label="岗位" value={work.position || ''} onChange={(e) => {
+                              const arr = [...resumeData.workExperience];
+                              arr[idx] = { ...arr[idx], position: e.target.value };
+                              updateSection('workExperience', arr);
+                            }} />
+                            <Input label="时间段" value={work.period || ''} onChange={(e) => {
+                              const arr = [...resumeData.workExperience];
+                              arr[idx] = { ...arr[idx], period: e.target.value };
+                              updateSection('workExperience', arr);
+                            }} />
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-1">工作内容</label>
+                              <textarea
+                                className="w-full px-3.5 py-2 text-sm bg-white border border-gray-300 rounded-md focus:outline-none focus:border-primary-500 focus:ring-3 focus:ring-primary-100 min-h-[120px] resize-y"
+                                value={work.description || ''}
+                                onChange={(e) => {
+                                  const arr = [...resumeData.workExperience];
+                                  arr[idx] = { ...arr[idx], description: e.target.value };
+                                  updateSection('workExperience', arr);
+                                }}
+                              />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
                     )}
                     {activeSection === 'projects' && (
-                      <>
-                        <Input label="项目名称" value={resumeData.projects[0]?.name || ''} onChange={(e) => {
-                          const p = [...resumeData.projects];
-                          p[0] = { ...(p[0] || { name: '', role: '', period: '', description: '' }), name: e.target.value };
-                          updateSection('projects', p);
-                        }} />
-                        <Input label="角色" value={resumeData.projects[0]?.role || ''} onChange={(e) => {
-                          const p = [...resumeData.projects];
-                          p[0] = { ...(p[0] || { name: '', role: '', period: '', description: '' }), role: e.target.value };
-                          updateSection('projects', p);
-                        }} />
-                        <Input label="时间段" value={resumeData.projects[0]?.period || ''} onChange={(e) => {
-                          const p = [...resumeData.projects];
-                          p[0] = { ...(p[0] || { name: '', role: '', period: '', description: '' }), period: e.target.value };
-                          updateSection('projects', p);
-                        }} />
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">项目描述</label>
-                          <textarea
-                            className="w-full px-3.5 py-2 text-sm bg-white border border-gray-300 rounded-md focus:outline-none focus:border-primary-500 focus:ring-3 focus:ring-primary-100 min-h-[120px] resize-y"
-                            value={resumeData.projects[0]?.description || ''}
-                            onChange={(e) => {
-                              const p = [...resumeData.projects];
-                              p[0] = { ...(p[0] || { name: '', role: '', period: '', description: '' }), description: e.target.value };
-                              updateSection('projects', p);
-                            }}
-                          />
-                        </div>
-                      </>
+                      <div className="space-y-4">
+                        {(resumeData.projects || []).map((proj, idx) => (
+                          <div key={idx} className="border border-gray-200 rounded-lg p-3 space-y-3 relative">
+                            <button
+                              className="absolute top-2 right-2 p-1 text-gray-400 hover:text-red-500"
+                              onClick={() => removeItem('projects', idx)}
+                              title="删除"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                            <p className="text-xs text-gray-400 font-medium">第 {idx + 1} 条</p>
+                            <Input label="项目名称" value={proj.name || ''} onChange={(e) => {
+                              const arr = [...resumeData.projects];
+                              arr[idx] = { ...arr[idx], name: e.target.value };
+                              updateSection('projects', arr);
+                            }} />
+                            <Input label="角色" value={proj.role || ''} onChange={(e) => {
+                              const arr = [...resumeData.projects];
+                              arr[idx] = { ...arr[idx], role: e.target.value };
+                              updateSection('projects', arr);
+                            }} />
+                            <Input label="时间段" value={proj.period || ''} onChange={(e) => {
+                              const arr = [...resumeData.projects];
+                              arr[idx] = { ...arr[idx], period: e.target.value };
+                              updateSection('projects', arr);
+                            }} />
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-1">项目描述</label>
+                              <textarea
+                                className="w-full px-3.5 py-2 text-sm bg-white border border-gray-300 rounded-md focus:outline-none focus:border-primary-500 focus:ring-3 focus:ring-primary-100 min-h-[120px] resize-y"
+                                value={proj.description || ''}
+                                onChange={(e) => {
+                                  const arr = [...resumeData.projects];
+                                  arr[idx] = { ...arr[idx], description: e.target.value };
+                                  updateSection('projects', arr);
+                                }}
+                              />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
                     )}
                     {activeSection === 'skills' && (
-                      <>
-                        <Input label="技能名称" value={resumeData.skills[0]?.name || ''} onChange={(e) => {
-                          const s = [...resumeData.skills];
-                          s[0] = { ...s[0], name: e.target.value };
-                          updateSection('skills', s);
-                        }} />
-                        <Input label="熟练度 (1-5)" type="number" min={1} max={5} value={String(resumeData.skills[0]?.level || 3)} onChange={(e) => {
-                          const s = [...resumeData.skills];
-                          let level = Number(e.target.value);
-                          if (Number.isNaN(level)) level = 3;
-                          level = Math.max(1, Math.min(5, level));
-                          s[0] = { ...s[0], level };
-                          updateSection('skills', s);
-                        }} />
-                      </>
+                      <div className="space-y-4">
+                        {(resumeData.skills || []).map((skill, idx) => (
+                          <div key={idx} className="border border-gray-200 rounded-lg p-3 space-y-3 relative">
+                            <button
+                              className="absolute top-2 right-2 p-1 text-gray-400 hover:text-red-500"
+                              onClick={() => removeItem('skills', idx)}
+                              title="删除"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                            <p className="text-xs text-gray-400 font-medium">第 {idx + 1} 条</p>
+                            <Input label="技能名称" value={skill.name || ''} onChange={(e) => {
+                              const arr = [...resumeData.skills];
+                              arr[idx] = { ...arr[idx], name: e.target.value };
+                              updateSection('skills', arr);
+                            }} />
+                            <Input label="熟练度 (1-5)" type="number" min={1} max={5} value={String(skill.level || 3)} onChange={(e) => {
+                              const arr = [...resumeData.skills];
+                              let level = Number(e.target.value);
+                              if (Number.isNaN(level)) level = 3;
+                              level = Math.max(1, Math.min(5, level));
+                              arr[idx] = { ...arr[idx], level };
+                              updateSection('skills', arr);
+                            }} />
+                          </div>
+                        ))}
+                      </div>
                     )}
                     {activeSection === 'summary' && (
                       <div>
@@ -465,7 +673,71 @@ export default function Editor() {
                         <p className="mt-1 text-xs text-gray-400 text-right">{(resumeData.summary || '').length}/500</p>
                       </div>
                     )}
-                    {!['personal', 'intention', 'education', 'workExperience', 'projects', 'skills', 'summary'].includes(activeSection) && (
+                    {activeSection === 'certificates' && (
+                      <div className="space-y-4">
+                        {((resumeData.certificates) || []).map((cert, idx) => (
+                          <div key={idx} className="border border-gray-200 rounded-lg p-3 space-y-3 relative">
+                            <button
+                              className="absolute top-2 right-2 p-1 text-gray-400 hover:text-red-500"
+                              onClick={() => removeItem('certificates', idx)}
+                              title="删除"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                            <p className="text-xs text-gray-400 font-medium">第 {idx + 1} 条</p>
+                            <Input label="证书名称" value={cert.name || ''} onChange={(e) => {
+                              const arr = [...(resumeData.certificates || [])];
+                              arr[idx] = { ...arr[idx], name: e.target.value };
+                              updateSection('certificates', arr);
+                            }} />
+                            <Input label="获得日期" value={cert.date || ''} onChange={(e) => {
+                              const arr = [...(resumeData.certificates || [])];
+                              arr[idx] = { ...arr[idx], date: e.target.value };
+                              updateSection('certificates', arr);
+                            }} />
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-1">详细说明</label>
+                              <textarea
+                                className="w-full px-3.5 py-2 text-sm bg-white border border-gray-300 rounded-md focus:outline-none focus:border-primary-500 focus:ring-3 focus:ring-primary-100 min-h-[80px] resize-y"
+                                value={cert.description || ''}
+                                onChange={(e) => {
+                                  const arr = [...(resumeData.certificates || [])];
+                                  arr[idx] = { ...arr[idx], description: e.target.value };
+                                  updateSection('certificates', arr);
+                                }}
+                              />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {activeSection === 'languages' && (
+                      <div className="space-y-4">
+                        {((resumeData.languages) || []).map((lang, idx) => (
+                          <div key={idx} className="border border-gray-200 rounded-lg p-3 space-y-3 relative">
+                            <button
+                              className="absolute top-2 right-2 p-1 text-gray-400 hover:text-red-500"
+                              onClick={() => removeItem('languages', idx)}
+                              title="删除"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                            <p className="text-xs text-gray-400 font-medium">第 {idx + 1} 条</p>
+                            <Input label="语言" value={lang.language || ''} onChange={(e) => {
+                              const arr = [...(resumeData.languages || [])];
+                              arr[idx] = { ...arr[idx], language: e.target.value };
+                              updateSection('languages', arr);
+                            }} />
+                            <Input label="程度（如 CET-6/流利）" value={lang.level || ''} onChange={(e) => {
+                              const arr = [...(resumeData.languages || [])];
+                              arr[idx] = { ...arr[idx], level: e.target.value };
+                              updateSection('languages', arr);
+                            }} />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {!['personal', 'intention', 'education', 'workExperience', 'projects', 'skills', 'summary', 'certificates', 'languages'].includes(activeSection) && (
                       <p className="text-sm text-gray-400">该模块表单占位</p>
                     )}
                   </div>
@@ -542,6 +814,15 @@ export default function Editor() {
           <p className="text-sm text-gray-500 text-center">{exportProgress}%</p>
         </div>
       </Modal>
+
+      {/* Import Modal */}
+      <ResumeImportModal
+        isOpen={showImportModal}
+        onClose={() => setShowImportModal(false)}
+        onParsed={(data) => {
+          setResumeData(data);
+        }}
+      />
     </div>
   );
 }

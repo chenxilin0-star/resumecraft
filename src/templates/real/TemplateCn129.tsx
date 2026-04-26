@@ -1,0 +1,15 @@
+import type { ResumeData, TemplateTheme } from '@/types';
+import type { ReactNode } from 'react';
+
+type Props = { data: ResumeData; theme: TemplateTheme };
+const Photo = ({ src }: { src?: string }) => src ? <img src={src} className="w-[7.5rem] h-[7.5rem] rounded-full object-cover mx-auto border-4 border-teal-400" /> : <div className="w-[7.5rem] h-[7.5rem] rounded-full bg-slate-700 mx-auto border-4 border-teal-400 flex items-center justify-center text-teal-200 text-xs">PHOTO</div>;
+const small = (t?: string) => (t || '').split(/\n|；|;/).map(v => v.trim()).filter(Boolean).slice(0, 3);
+
+export default function TemplateCn129({ data, theme }: Props) {
+  const teal = theme.colors.primary || '#0f766e';
+  const Section = ({ title, children }: { title: string; children: ReactNode }) => <section className="mb-5"><h2 className="font-black text-teal-800 tracking-[0.16em] border-b-4 border-teal-700 pb-1 mb-3">{title}</h2>{children}</section>;
+  return <div className="min-h-[297mm] bg-white grid grid-cols-[31%_69%] text-[12px] text-slate-700 leading-relaxed" style={{ fontFamily: theme.font.body }}>
+    <aside className="bg-slate-900 text-white p-7"><Photo src={data.personal.photo} /><h1 className="text-3xl text-center font-bold mt-5 tracking-widest" style={{ fontFamily: theme.font.heading }}>{data.personal.name || '姓名'}</h1><div className="h-1 w-20 mx-auto mt-3" style={{ backgroundColor: teal }} /><p className="text-center text-teal-200 mt-2 tracking-[0.28em] text-xs">RESUME</p><div className="mt-8 space-y-5"><div className="bg-slate-800 p-4"><h3 className="text-teal-300 font-bold mb-2">CONTACT</h3>{[data.personal.phone, data.personal.email, data.personal.city, data.personal.wechat].filter(Boolean).map((c, i) => <p key={i} className="mb-1 break-all">{c}</p>)}</div><div className="bg-slate-800 p-4"><h3 className="text-teal-300 font-bold mb-2">HIGHLIGHTS</h3>{data.skills.slice(0, 5).map((s, i) => <p key={i} className="border-b border-slate-700 py-1">{s.name} · {s.level}%</p>)}</div>{data.summary && <div className="bg-teal-800/60 p-4"><h3 className="font-bold mb-2">PROFILE</h3><p>{data.summary}</p></div>}</div></aside>
+    <main className="p-8"><div className="mb-6 flex justify-around text-teal-700 border-y border-teal-200 py-3"><span>☎ Contact</span><span>✉ Mail</span><span>◎ Skill</span><span>★ Value</span></div><Section title="WORK EXPERIENCE">{data.workExperience.map((w, i) => <div key={i} className="mb-4"><div className="flex justify-between font-bold text-slate-900"><span>{w.company} · {w.position}</span><span className="text-teal-700">{w.period}</span></div>{small(w.description).map((b, j) => <p key={j}>• {b}</p>)}</div>)}</Section><Section title="PROJECTS">{data.projects.map((p, i) => <div key={i} className="mb-3 bg-teal-50 border-l-4 border-teal-700 p-3"><b>{p.name}</b> · {p.role}<p>{p.description}</p>{p.techStack && <p className="text-teal-700">{p.techStack}</p>}</div>)}</Section><Section title="EDUCATION">{data.education.map((e, i) => <p key={i} className="mb-2"><b>{e.school}</b> · {e.major} · {e.degree}<span className="float-right">{e.period}</span></p>)}</Section></main>
+  </div>;
+}
