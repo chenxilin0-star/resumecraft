@@ -10,6 +10,21 @@ import FadeIn from '@/components/animations/FadeIn';
 import Button from '@/components/ui/Button';
 
 const styles = ['极简', '商务', '双栏', '清新', '创意', '时间线', '深色'];
+function getCollectionThemeFilter(templateId: string | undefined, themeId: string | undefined): string | undefined {
+  if (!templateId?.startsWith('cn-')) return undefined;
+  switch (themeId) {
+    case 'green':
+      return 'hue-rotate(70deg) saturate(1.08)';
+    case 'red':
+      return 'hue-rotate(145deg) saturate(1.12)';
+    case 'purple':
+      return 'hue-rotate(35deg) saturate(1.1)';
+    case 'dark':
+      return 'grayscale(0.25) contrast(1.08) brightness(0.96)';
+    default:
+      return undefined;
+  }
+}
 const styleAliases: Record<string, string[]> = {
   极简: ['极简', '简约', 'minimal'],
   商务: ['商务', 'business'],
@@ -420,7 +435,16 @@ export default function Templates() {
 
                 {/* Preview */}
                 <div className="bg-gray-100 rounded-lg p-4 flex justify-center overflow-auto">
-                  <div className="bg-white shadow-lg origin-top" style={{ width: '210mm', minHeight: '297mm', transform: 'scale(0.55)', transformOrigin: 'top center' }}>
+                  <div
+                    className="bg-white shadow-lg origin-top"
+                    style={{
+                      width: '210mm',
+                      minHeight: '297mm',
+                      transform: 'scale(0.55)',
+                      transformOrigin: 'top center',
+                      filter: getCollectionThemeFilter(previewTemplate.id, activePreviewTheme.id),
+                    }}
+                  >
                     {PreviewComponent && <PreviewComponent data={getDemoData(previewTemplate)} theme={activePreviewTheme} />}
                   </div>
                 </div>
@@ -462,7 +486,13 @@ function TemplateCard({
           {Component && theme ? (
             <div
               className="origin-top pointer-events-none select-none bg-white shadow-sm"
-              style={{ width: '210mm', minHeight: '297mm', transform: 'scale(0.235)', transformOrigin: 'top center' }}
+              style={{
+                width: '210mm',
+                minHeight: '297mm',
+                transform: 'scale(0.235)',
+                transformOrigin: 'top center',
+                filter: getCollectionThemeFilter(template.id, theme.id),
+              }}
             >
               <Component data={data} theme={theme} />
             </div>

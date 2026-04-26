@@ -24,10 +24,11 @@ describe('模板过滤', () => {
     });
   });
 
-  it('收藏模板至少包含1个主题', () => {
+  it('收藏模板至少包含多个可切换主题', () => {
     const collectionTemplates = templateRegistry.filter((t) => t.id.startsWith('cn-'));
     collectionTemplates.forEach((t) => {
-      expect(t.themes.length).toBeGreaterThanOrEqual(1);
+      expect(t.themes.length).toBeGreaterThanOrEqual(5);
+      expect(new Set(t.themes.map((theme) => theme.colors.primary)).size).toBeGreaterThanOrEqual(5);
     });
   });
 

@@ -16,6 +16,22 @@ import type { AiAction } from '@/utils/ai';
 import type { ResumeData } from '@/types';
 import ResumeImportModal from '@/components/ResumeImportModal';
 
+function getCollectionThemeFilter(templateId: string | undefined, themeId: string | undefined): string | undefined {
+  if (!templateId?.startsWith('cn-')) return undefined;
+  switch (themeId) {
+    case 'green':
+      return 'hue-rotate(70deg) saturate(1.08)';
+    case 'red':
+      return 'hue-rotate(145deg) saturate(1.12)';
+    case 'purple':
+      return 'hue-rotate(35deg) saturate(1.1)';
+    case 'dark':
+      return 'grayscale(0.25) contrast(1.08) brightness(0.96)';
+    default:
+      return undefined;
+  }
+}
+
 const sectionLabels: Record<string, string> = {
   personal: '个人信息',
   intention: '求职意向',
@@ -779,6 +795,7 @@ export default function Editor() {
               width: '210mm',
               minHeight: '297mm',
               transform: `scale(${zoom})`,
+              filter: getCollectionThemeFilter(template?.id, activeThemeId),
             }}
           >
             {TemplateComponent && <TemplateComponent data={previewData} theme={theme} />}

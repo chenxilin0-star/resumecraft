@@ -1,5 +1,38 @@
 import { TemplateConfig } from '@/types';
 
+const collectionThemePresets: TemplateConfig['themes'] = [
+  {
+    id: 'blue',
+    name: '商务蓝',
+    colors: { primary: '#2563EB', secondary: '#3B82F6', accent: '#DBEAFE', background: '#FFFFFF', surface: '#EFF6FF', text: '#111827', textMuted: '#6B7280', border: '#BFDBFE' },
+    font: { heading: 'Noto Sans SC', body: 'Noto Sans SC' },
+  },
+  {
+    id: 'green',
+    name: '清新绿',
+    colors: { primary: '#059669', secondary: '#10B981', accent: '#D1FAE5', background: '#FFFFFF', surface: '#ECFDF5', text: '#064E3B', textMuted: '#6B7280', border: '#A7F3D0' },
+    font: { heading: 'Noto Sans SC', body: 'Noto Sans SC' },
+  },
+  {
+    id: 'red',
+    name: '砖红',
+    colors: { primary: '#DC2626', secondary: '#EF4444', accent: '#FEE2E2', background: '#FFFFFF', surface: '#FEF2F2', text: '#7F1D1D', textMuted: '#6B7280', border: '#FECACA' },
+    font: { heading: 'Noto Sans SC', body: 'Noto Sans SC' },
+  },
+  {
+    id: 'purple',
+    name: '优雅紫',
+    colors: { primary: '#7C3AED', secondary: '#8B5CF6', accent: '#EDE9FE', background: '#FFFFFF', surface: '#F5F3FF', text: '#3B0764', textMuted: '#6B7280', border: '#C4B5FD' },
+    font: { heading: 'Noto Sans SC', body: 'Noto Sans SC' },
+  },
+  {
+    id: 'dark',
+    name: '高级黑',
+    colors: { primary: '#111827', secondary: '#374151', accent: '#E5E7EB', background: '#FFFFFF', surface: '#F9FAFB', text: '#111827', textMuted: '#6B7280', border: '#D1D5DB' },
+    font: { heading: 'Noto Sans SC', body: 'Noto Sans SC' },
+  },
+];
+
 // Selected 29 real templates from ResumeCollection github repo
 // Each has a dedicated React component with SVG background decorations
 
@@ -1019,7 +1052,10 @@ export const collectionTemplateConfigs: TemplateConfig[] = [
     ],
     fonts: { heading: 'Noto Sans SC', body: 'Noto Sans SC' },
   },
-];
+].map((template) => ({
+  ...template,
+  themes: collectionThemePresets,
+}));
 
 export const collectionComponentMap: Record<string, string> = {
   'cn-002': 'cn-002',
