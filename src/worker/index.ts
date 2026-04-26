@@ -395,6 +395,45 @@ app.post('/api/resumes/:id/duplicate', async (c) => {
 
 // ─── AI Resume Optimization ─────────────────────────────────────────────────
 
+function normalizeComparableText(value: string): string {
+  return value.replace(/[\s\n\r\t，。！？、；：,.!?;:（）()【】\[\]"'“”‘’`~\-—_/\\|]+/g, '').toLowerCase();
+}
+
+function isEffectivelySameAiText(original: string, result: string): boolean {
+  const a = normalizeComparableText(original);
+  const b = normalizeComparableText(result);
+  if (!a || !b) return false;
+  return a === b;
+}
+
+function isSparseInput(value: string): boolean {
+  const text = value.trim();
+  const charCount = Array.from(text.replace(/\s+/g, '')).length;
+  const hasSentenceBoundary = /[，。！？、；：,.!?;:\n]/.test(text);
+  return charCount > 0 && charCount <= 12 && !hasSentenceBoundary;
+}
+
+function fallbackRewriteText(original: string, action: string, section: string): string {
+  const rawText = original.trim().replace(/[。；;\s]+$/g, '');
+  const subject = rawText.replace(/^(负责|参与|协助|主导|推动|完成|进行|从事)/, '');
+  const text = subject || rawText;
+  const isCapability = /^[\u4e00-\u9fa5A-Za-z0-9+#.\s]{1,12}$/.test(text) && !/(开发|搭建|设计|运营|管理|分析|撰写|维护|测试|销售|交付|优化)/.test(text);
+  if (isCapability) {
+    if (action === 'shorten') return `${text}能力突出，推动协作落地`;
+    if (action === 'expand') return `具备良好的${text}能力，能够围绕任务目标完成信息对齐、协作推进、问题跟进与结果沉淀。`;
+    if (action === 'professional') return `具备良好的${text}能力，能够高效推进协作对齐、问题沟通与任务落地。`;
+    return `具备良好的${text}能力，注重协作效率、信息同步与结果落地。`;
+  }
+  if (action === 'shorten') return `聚焦${text}，保障关键任务落地`;
+  if (action === 'expand') {
+    if (section === 'projects') return `围绕${text}，负责需求拆解、方案执行与结果复盘，推动项目按计划落地并提升交付质量。`;
+    if (section === 'summary') return `具备${text}相关能力，能够结合目标岗位要求推进任务落地，注重执行质量、协作效率与结果沉淀。`;
+    return `围绕${text}，负责需求理解、方案执行、协作推进与问题跟进，保障相关工作按计划落地并持续优化交付质量。`;
+  }
+  if (action === 'professional') return `聚焦${text}，推动相关工作规范化落地，持续提升执行质量与协作效率。`;
+  return `负责${text}相关工作，围绕任务目标推进执行、优化流程并保障交付质量。`;
+}
+
 app.post('/api/ai/optimize', async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const text = String(body.text || '').trim();
@@ -405,6 +444,11 @@ app.post('/api/ai/optimize', async (c) => {
 
   if (!text) return error('Text required');
   if (text.length > 3000) return error('Text too long, max 3000 characters');
+
+  if (isSparseInput(text) && ['polish', 'expand', 'professional', 'shorten'].includes(action)) {
+    return json({ text: fallbackRewriteText(text, action, section), model: 'rule-based-short-input', rewritten: true });
+  }
+
   if (!c.env.DEEPSEEK_API_KEY) return error('DeepSeek API key is not configured', 500);
 
   const model = c.env.DEEPSEEK_MODEL || 'deepseek-chat';
@@ -440,7 +484,11 @@ app.post('/api/ai/optimize', async (c) => {
   const resultText = choices?.[0]?.message?.content?.trim();
   if (!resultText) return error('DeepSeek returned empty content', 502);
 
-  return json({ text: resultText, model });
+  const finalText = isEffectivelySameAiText(text, resultText)
+    ? fallbackRewriteText(text, action, section)
+    : resultText;
+
+  return json({ text: finalText, model, rewritten: finalText !== resultText });
 });
 
 // ─── AI Resume Import (parse uploaded resume text) ───────────────────────────

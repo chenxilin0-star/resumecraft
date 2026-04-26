@@ -22,4 +22,17 @@ describe('AI resume helpers', () => {
     expect(prompt).toContain('负责前端页面开发');
     expect(prompt).toContain('只返回优化后的正文');
   });
+
+  it('instructs the model not to return the original text unchanged', () => {
+    const prompt = buildResumeAiPrompt({
+      action: 'expand',
+      section: 'workExperience',
+      text: '负责前端页面开发',
+      targetRole: '前端工程师',
+    });
+
+    expect(prompt).toContain('不得原样返回');
+    expect(prompt).toContain('信息不足');
+    expect(prompt).toContain('不要编造数字');
+  });
 });

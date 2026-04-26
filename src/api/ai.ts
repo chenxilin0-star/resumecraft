@@ -12,6 +12,7 @@ export interface AiOptimizeRequest {
 export interface AiOptimizeResponse {
   text: string;
   model: string;
+  rewritten?: boolean;
 }
 
 export const aiApi = {
