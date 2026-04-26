@@ -12,6 +12,7 @@ import { cn } from '@/utils/helpers';
 import { aiApi } from '@/api/ai';
 import { resumesApi } from '@/api/resumes';
 import { useAuthStore } from '@/stores/authStore';
+import { applyResumeAiText, getResumeAiText, normalizeAiTargetIndex } from '@/utils/editorAiTarget';
 import type { AiAction } from '@/utils/ai';
 import type { ResumeData } from '@/types';
 import ResumeImportModal from '@/components/ResumeImportModal';
@@ -69,6 +70,7 @@ export default function Editor() {
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [aiLoadingAction, setAiLoadingAction] = useState<AiAction | null>(null);
   const [aiError, setAiError] = useState('');
+  const [activeAiItemIndex, setActiveAiItemIndex] = useState(0);
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [visibleSections, setVisibleSections] = useState<string[]>(() => template?.defaultSections || []);
   const [autoSaveStatus, setAutoSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
@@ -167,28 +169,20 @@ export default function Editor() {
     }
   };
 
-  const getActiveAiText = () => {
-    if (activeSection === 'summary') return resumeData.summary || '';
-    if (activeSection === 'workExperience') return resumeData.workExperience[0]?.description || '';
-    if (activeSection === 'projects') return resumeData.projects[0]?.description || '';
-    return '';
-  };
+  const getActiveAiText = () => getResumeAiText(resumeData, activeSection, activeAiItemIndex);
 
   const applyActiveAiText = (text: string) => {
+    const nextData = applyResumeAiText(resumeData, activeSection, activeAiItemIndex, text);
     if (activeSection === 'summary') {
-      updateSection('summary', text);
+      updateSection('summary', nextData.summary);
       return;
     }
     if (activeSection === 'workExperience') {
-      const work = [...resumeData.workExperience];
-      work[0] = { ...(work[0] || { company: '', position: '', period: '', description: '' }), description: text };
-      updateSection('workExperience', work);
+      updateSection('workExperience', nextData.workExperience);
       return;
     }
     if (activeSection === 'projects') {
-      const projects = [...resumeData.projects];
-      projects[0] = { ...(projects[0] || { name: '', role: '', period: '', description: '' }), description: text };
-      updateSection('projects', projects);
+      updateSection('projects', nextData.projects);
     }
   };
 
@@ -216,6 +210,27 @@ export default function Editor() {
   };
 
   const canUseAi = ['summary', 'workExperience', 'projects'].includes(activeSection);
+  const activeAiTargetIndex = normalizeAiTargetIndex(resumeData, activeSection, activeAiItemIndex);
+  const activeAiItemCount = activeSection === 'workExperience'
+    ? resumeData.workExperience.length
+    : activeSection === 'projects'
+      ? resumeData.projects.length
+      : 0;
+
+  useEffect(() => {
+    if (activeSection === 'workExperience' || activeSection === 'projects') {
+      const normalized = normalizeAiTargetIndex(resumeData, activeSection, activeAiItemIndex);
+      if (normalized !== activeAiItemIndex) setActiveAiItemIndex(normalized);
+      return;
+    }
+    if (activeAiItemIndex !== 0) setActiveAiItemIndex(0);
+  }, [activeSection, activeAiItemIndex, resumeData.workExperience.length, resumeData.projects.length, resumeData]);
+
+  const selectAiTarget = (section: 'workExperience' | 'projects', index: number) => {
+    setActiveSection(section);
+    setActiveAiItemIndex(index);
+    setAiError('');
+  };
 
   const addMenuRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -493,7 +508,11 @@ export default function Editor() {
                           ))}
                         </div>
                         {aiError && <p className="mt-2 text-xs text-red-500">{aiError}</p>}
-                        <p className="mt-2 text-xs text-primary-500">支持自我评价、工作经历、项目经历润色。</p>
+                        <p className="mt-2 text-xs text-primary-500">
+                          {activeSection === 'workExperience' || activeSection === 'projects'
+                            ? `当前将优化第 ${activeAiTargetIndex + 1}/${activeAiItemCount} 条；点击对应描述框可切换优化目标。`
+                            : '支持自我评价、工作经历、项目经历润色。'}
+                        </p>
                       </div>
                     )}
                     {activeSection === 'personal' && (
@@ -550,7 +569,14 @@ export default function Editor() {
                     {activeSection === 'workExperience' && (
                       <div className="space-y-4">
                         {(resumeData.workExperience || []).map((work, idx) => (
-                          <div key={idx} className="border border-gray-200 rounded-lg p-3 space-y-3 relative">
+                          <div
+                            key={idx}
+                            onClick={() => selectAiTarget('workExperience', idx)}
+                            className={cn(
+                              "border rounded-lg p-3 space-y-3 relative",
+                              activeAiTargetIndex === idx ? "border-primary-300 bg-primary-50/30" : "border-gray-200"
+                            )}
+                          >
                             <button
                               className="absolute top-2 right-2 p-1 text-gray-400 hover:text-red-500"
                               onClick={() => removeItem('workExperience', idx)}
@@ -579,6 +605,7 @@ export default function Editor() {
                               <textarea
                                 className="w-full px-3.5 py-2 text-sm bg-white border border-gray-300 rounded-md focus:outline-none focus:border-primary-500 focus:ring-3 focus:ring-primary-100 min-h-[120px] resize-y"
                                 value={work.description || ''}
+                                onFocus={() => selectAiTarget('workExperience', idx)}
                                 onChange={(e) => {
                                   const arr = [...resumeData.workExperience];
                                   arr[idx] = { ...arr[idx], description: e.target.value };
@@ -593,7 +620,14 @@ export default function Editor() {
                     {activeSection === 'projects' && (
                       <div className="space-y-4">
                         {(resumeData.projects || []).map((proj, idx) => (
-                          <div key={idx} className="border border-gray-200 rounded-lg p-3 space-y-3 relative">
+                          <div
+                            key={idx}
+                            onClick={() => selectAiTarget('projects', idx)}
+                            className={cn(
+                              "border rounded-lg p-3 space-y-3 relative",
+                              activeAiTargetIndex === idx ? "border-primary-300 bg-primary-50/30" : "border-gray-200"
+                            )}
+                          >
                             <button
                               className="absolute top-2 right-2 p-1 text-gray-400 hover:text-red-500"
                               onClick={() => removeItem('projects', idx)}
@@ -622,6 +656,7 @@ export default function Editor() {
                               <textarea
                                 className="w-full px-3.5 py-2 text-sm bg-white border border-gray-300 rounded-md focus:outline-none focus:border-primary-500 focus:ring-3 focus:ring-primary-100 min-h-[120px] resize-y"
                                 value={proj.description || ''}
+                                onFocus={() => selectAiTarget('projects', idx)}
                                 onChange={(e) => {
                                   const arr = [...resumeData.projects];
                                   arr[idx] = { ...arr[idx], description: e.target.value };
